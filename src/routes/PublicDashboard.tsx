@@ -1,16 +1,18 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { Cell, Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { ArrowUpRight } from "lucide-react";
+import { motion } from "motion/react";
+import { ArrowUpRight, Award } from "lucide-react";
 import { disasters, ngos } from "@/lib/mock";
 import { formatINR } from "@/lib/format";
 import { PageHeader } from "@/components/composite/Chrome";
 import { TrustScoreRing } from "@/components/composite/Viz";
+import { CountUp } from "@/components/luxe/CountUp";
+import { Reveal, Stagger, StaggerItem } from "@/components/luxe/Reveal";
+import { TiltCard } from "@/components/viz/Depth";
+import { IsoBarChart } from "@/components/viz/IsoBarChart";
 import { shortINR } from "@/routes/Public";
 
-const BAR_COLORS = ["#14499a", "#2f6fd0", "#157a54", "#d9871f"];
-
-// Lazy-loaded so recharts stays out of the initial bundle (§16)
+const BAR_COLORS = ["#2456D6", "#2E7CF6", "#0F7A52", "#0F6D8A"];
 export default function PublicDashboard() {
   const [id, setId] = useState(disasters[0]?.id ?? "");
   const d = disasters.find((x) => x.id === id) ?? disasters[0];
@@ -24,72 +26,93 @@ export default function PublicDashboard() {
   return (
     <div>
       <PageHeader eyebrow="Public · aggregate only" title="Transparency Dashboard" sub="Privacy-safe view. Fraud counts are aggregates — no investigation detail here." />
-      <div className="grid grid-cols-2 gap-3.5 xl:grid-cols-4">
-        {[["Collected", d.collected, "Total raised"], ["Allocated", d.allocated, "Sent to NGOs"], ["Spent", d.spent, "Paid to vendors"], ["Remaining", d.collected - d.spent, "Unspent balance"]].map(([k, v, hint], i) => (
-          <div key={k as string} className={`rs-card p-4 md:p-5 ${i === 0 ? "!border-[var(--primary-600)] shadow-[var(--shadow-2)]" : ""}`}>
-            <p className="eyebrow">{k}</p>
-            <p className="kpi mt-1 text-[26px] font-extrabold leading-8">{shortINR(v as number)}</p>
-            <p className="mono mt-0.5 hidden text-[11px] lg:block" style={{ color: "var(--text-muted)" }} title={formatINR(v as number)}>{hint} · {formatINR(v as number)}</p>
-          </div>
+
+      <Stagger className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+        {[["Collected", d.collected, "Total raised"], ["Allocated", d.allocated, "Sent to NGOs"], ["Spent", d.spent, "Paid to vendors"], ["Remaining", d.collected - d.spent, "Unspent balance"]].map(([k, v, hint]) => (
+          <StaggerItem key={k as string}>
+            <TiltCard>
+              <div className="rs-card p-5 md:p-6">
+                <p className="eyebrow !text-[10px]">{k}</p>
+                <p className="kpi mt-2 text-[30px] font-extrabold leading-none md:text-[34px]">
+                  <CountUp to={v as number} format={(x) => shortINR(x)} />
+                </p>
+                <p className="mono mt-2 hidden text-[11px] lg:block" style={{ color: "var(--text-muted)" }} title={formatINR(v as number)}>{hint} · {formatINR(v as number)}</p>
+              </div>
+            </TiltCard>
+          </StaggerItem>
         ))}
-      </div>
+      </Stagger>
 
-      <div className="mt-3.5 grid gap-3.5 lg:grid-cols-[1.4fr_1fr]">
-        <div className="rs-card p-4 md:p-5">
-          <div className="flex items-center justify-between gap-2">
-            <h2 className="rs-h2">Fund movement</h2>
-            <label className="flex items-center gap-2 text-[13px] font-medium" style={{ color: "var(--text-secondary)" }}>
-              Disaster
-              <select value={id} onChange={(e) => setId(e.target.value)} className="rs-input !w-auto !min-h-[36px] !py-1.5 text-[13px]" aria-label="Select disaster">
-                {disasters.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
-              </select>
-            </label>
-          </div>
-          <div className="mt-2 h-64 min-h-[240px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" vertical={false} />
-                <XAxis dataKey="name" tick={{ fill: "var(--text-secondary)", fontSize: 12, fontWeight: 600 }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fill: "var(--text-muted)", fontSize: 11 }} tickFormatter={(v: number) => shortINR(v)} axisLine={false} tickLine={false} width={72} />
-                <Tooltip
-                  formatter={(v) => [formatINR(Number(v)), "Amount"]}
-                  contentStyle={{ background: "var(--bg-surface)", border: "1px solid var(--border-subtle)", borderRadius: 12, color: "var(--text-primary)", fontSize: 13 }}
-                />
-                <Bar dataKey="v" radius={[10, 10, 4, 4]} maxBarSize={64}>
-                  {data.map((_, i) => <Cell key={i} fill={BAR_COLORS[i % BAR_COLORS.length]} />)}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-          <details className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}><summary className="cursor-pointer font-medium underline underline-offset-2">View as data table</summary>
-            <table className="rs-table mono mt-2 !text-xs">
-              <caption className="sr-only">Fund movement for {d.name}</caption>
-              <thead><tr><th scope="col">Stage</th><th scope="col">Amount</th></tr></thead>
-              <tbody>{data.map((r) => <tr key={r.name}><td>{r.name}</td><td>{formatINR(r.v)}</td></tr>)}</tbody>
-            </table>
-          </details>
-        </div>
-
-        <div className="rs-card p-4 md:p-5">
-          <h2 className="rs-h2">Top NGO by score</h2>
-          <p className="text-[13px]" style={{ color: "var(--text-secondary)" }}>Scores always ship with breakdowns.</p>
-          <div className="mt-3"><TrustScoreRing score={ngos[0].score} components={ngos[0].components} /></div>
-          <Link to={`/org/${ngos[0].id}`} className="mt-2 inline-flex items-center gap-1 text-sm font-bold">{ngos[0].name} <ArrowUpRight size={15} aria-hidden /></Link>
-        </div>
-      </div>
-
-      <h2 className="rs-h2 mb-2 mt-6">Participating NGOs</h2>
-      <div className="grid gap-3.5 md:grid-cols-2">
-        {ngos.map((n) => (
-          <Link key={n.id} to={`/org/${n.id}`} className="rs-card rs-card-lift block p-5">
-            <div className="flex items-center justify-between gap-2">
-              <span className="font-display text-[16px] font-bold">{n.name}</span>
-              <span className="kpi rounded-full border px-2.5 py-0.5 text-xs font-extrabold" style={{ borderColor: "var(--border-subtle)", background: "var(--accent-soft)" }}>{n.score}</span>
+      <div className="mt-4 grid gap-4 lg:grid-cols-[1.45fr_1fr]">
+        <Reveal>
+          <div className="rs-card h-full p-5 md:p-7">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-[20px] font-extrabold tracking-tight">Fund movement</h2>
+                <p className="mono mt-0.5 text-[11px] tracking-wide" style={{ color: "var(--text-muted)" }}>{d.name.toUpperCase()} · RECONCILED NIGHTLY</p>
+              </div>
+              <label className="flex items-center gap-2 text-[13px] font-bold" style={{ color: "var(--text-secondary)" }}>
+                Disaster
+                <select value={id} onChange={(e) => setId(e.target.value)} className="rs-input !w-auto !min-h-[40px] !rounded-full !py-2 text-[13px]" aria-label="Select disaster">
+                  {disasters.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+                </select>
+              </label>
             </div>
-            <div className="mt-3"><TrustScoreRing score={n.score} components={n.components} /></div>
-          </Link>
-        ))}
+            <div className="mt-3">
+              <IsoBarChart
+                data={data.map((r, i) => ({ name: r.name, value: r.v, color: BAR_COLORS[i % BAR_COLORS.length] }))}
+                formatTick={(v) => shortINR(v)}
+                formatExact={(v) => formatINR(v)}
+                ariaLabel={`Fund movement for ${d.name}: collected ${formatINR(d.collected)}, allocated ${formatINR(d.allocated)}, spent ${formatINR(d.spent)}`}
+              />
+            </div>
+            <details className="mt-2 text-xs" style={{ color: "var(--text-secondary)" }}><summary className="cursor-pointer font-bold underline underline-offset-2">View as data table</summary>
+              <table className="rs-table mono mt-2 !text-xs">
+                <caption className="sr-only">Fund movement for {d.name}</caption>
+                <thead><tr><th scope="col">Stage</th><th scope="col">Amount</th></tr></thead>
+                <tbody>{data.map((r) => <tr key={r.name}><td>{r.name}</td><td>{formatINR(r.v)}</td></tr>)}</tbody>
+              </table>
+            </details>
+          </div>
+        </Reveal>
+
+        <Reveal delay={0.08}>
+          <div className="rs-card h-full p-5 md:p-7">
+            <p className="eyebrow">Top NGO by score</p>
+            <h2 className="mt-1 flex items-center gap-2 text-[20px] font-extrabold tracking-tight">
+              <Award size={19} aria-hidden style={{ color: "var(--primary-600)" }} /> Hall of trust
+            </h2>
+            <p className="mt-1 text-[13px]" style={{ color: "var(--text-secondary)" }}>Scores always ship with breakdowns.</p>
+            <div className="mt-4"><TrustScoreRing score={ngos[0].score} components={ngos[0].components} /></div>
+            <Link to={`/org/${ngos[0].id}`} className="mt-3 inline-flex items-center gap-1 text-sm font-extrabold">{ngos[0].name} <ArrowUpRight size={15} aria-hidden /></Link>
+          </div>
+        </Reveal>
       </div>
+
+      <div className="mb-2 mt-8 flex items-end justify-between">
+        <h2 className="text-[22px] font-extrabold tracking-tight">Participating NGOs</h2>
+        <p className="mono hidden text-[11px] tracking-wide sm:block" style={{ color: "var(--text-muted)" }}>{ngos.length} VERIFIED PARTNERS</p>
+      </div>
+      <Stagger className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {ngos.map((n, i) => (
+          <StaggerItem key={n.id}>
+            <Link to={`/org/${n.id}`} className="rs-card rs-card-lift block p-6">
+              <div className="flex items-center justify-between gap-2">
+                <span className="mono text-[11px] font-bold" style={{ color: "var(--text-muted)" }}>0{i + 1}</span>
+                <span className="kpi rounded-full border px-3 py-1 text-[13px] font-extrabold" style={{ borderColor: "var(--border-subtle)", background: "var(--accent-soft)", color: "var(--primary-600)" }}>{n.score} / 100</span>
+              </div>
+              <span className="mt-2 block text-[19px] font-extrabold tracking-tight">{n.name}</span>
+              <span className="mono mt-1 block text-[11px]" style={{ color: "var(--text-muted)" }}>{n.programs} PROGRAMS · {formatINR(n.spent)} DEPLOYED</span>
+              <div className="mt-4 border-t pt-4" style={{ borderColor: "var(--border-subtle)" }}>
+                <TrustScoreRing score={n.score} components={n.components} />
+              </div>
+              <motion.span className="mt-4 inline-flex items-center gap-1 text-[13px] font-extrabold" whileHover={{ x: 3 }}>
+                View public profile <ArrowUpRight size={14} aria-hidden />
+              </motion.span>
+            </Link>
+          </StaggerItem>
+        ))}
+      </Stagger>
     </div>
   );
 }
