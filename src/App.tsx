@@ -1,4 +1,4 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { AppShell, PublicShell } from "@/layouts/Shells";
 import { Landing, Methodology } from "@/routes/Public";
@@ -46,6 +46,13 @@ function RequireRole({ allow, children }: { allow: Role[]; children: React.React
   return children;
 }
 
+// Any signed-in role. Guests are sent to login and return afterwards.
+const SIGNED_IN: Role[] = ["donor", "ngo", "vendor", "auditor", "admin"];
+
+function RequireAuth({ children }: { children: React.ReactElement }) {
+  return <RequireRole allow={SIGNED_IN}>{children}</RequireRole>;
+}
+
 function RoleHome() {
   const { role } = useUI();
   if (role === "guest") return <Navigate to="/login" replace />;
@@ -56,16 +63,30 @@ function RoleHome() {
   return <DonorHome />;
 }
 
+function ScrollToTop() {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
+  }, [pathname]);
+  return null;
+}
+
 function Fallback() {
   return (
-    <div className="space-y-3 p-4" aria-busy="true" aria-label="Loading">
-      <div className="rs-skeleton h-9 w-1/3 rounded-xl" />
-      <div className="rs-skeleton h-48 rounded-2xl" />
-      <div className="grid gap-3 md:grid-cols-3">
-        <div className="rs-skeleton h-28 rounded-2xl" />
-        <div className="rs-skeleton h-28 rounded-2xl" />
-        <div className="rs-skeleton h-28 rounded-2xl" />
+    <div className="mx-auto w-full max-w-[1280px] space-y-4 p-6" aria-busy="true" aria-label="Loading">
+      <div className="flex items-center gap-3">
+        <div className="flex h-11 w-11 items-center justify-center rounded-2xl text-white" style={{ background: "linear-gradient(135deg,#2E7CF6,#1A3FA0)" }} aria-hidden>
+          <svg width="24" height="24" viewBox="0 0 64 64" aria-hidden><rect x="12" y="33" width="40" height="4" rx="2" fill="#fff"/><path d="M16 33 C 22 20, 42 20, 48 33" fill="none" stroke="#fff" strokeWidth="3.5" strokeLinecap="round"/><rect x="15" y="37" width="4" height="11" rx="2" fill="#fff" opacity=".92"/><rect x="45" y="37" width="4" height="11" rx="2" fill="#fff" opacity=".92"/><circle cx="32" cy="22.5" r="5.5" fill="#fff"/></svg>
+        </div>
+        <div className="rs-skeleton h-5 w-40 rounded-full" />
       </div>
+      <div className="rs-skeleton h-56 rounded-[24px]" />
+      <div className="grid gap-4 md:grid-cols-3">
+        <div className="rs-skeleton h-32 rounded-[22px]" />
+        <div className="rs-skeleton h-32 rounded-[22px]" />
+        <div className="rs-skeleton h-32 rounded-[22px]" />
+      </div>
+      <p className="mono text-center text-[11px] tracking-[0.24em]" style={{ color: "var(--text-muted)" }}>LOADING LEDGER…</p>
     </div>
   );
 }
@@ -73,6 +94,7 @@ function Fallback() {
 export default function App() {
   return (
     <BrowserRouter>
+      <ScrollToTop />
       <Suspense fallback={<Fallback />}>
         <Routes>
           <Route element={<PublicShell />}>
@@ -83,9 +105,9 @@ export default function App() {
             <Route path="login" element={<Login />} />
             <Route path="register" element={<Register />} />
             <Route path="pending" element={<Pending />} />
-            <Route path="donate" element={<DonateFlow />} />
-            <Route path="donations" element={<MyDonations />} />
-            <Route path="donations/:id" element={<LineageDetail />} />
+            <Route path="donate" element={<RequireAuth><DonateFlow /></RequireAuth>} />
+            <Route path="donations" element={<RequireAuth><MyDonations /></RequireAuth>} />
+            <Route path="donations/:id" element={<RequireAuth><LineageDetail /></RequireAuth>} />
             <Route path="403" element={<MISC.Forbidden />} />
             <Route path="404" element={<MISC.NotFound />} />
           </Route>
