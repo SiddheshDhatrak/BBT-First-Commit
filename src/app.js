@@ -57,7 +57,7 @@ function createApp({ repository, config } = {}) {
     }
   }
   const audit = createAuditService(repo);
-  const adapters = createAdapters();
+  const adapters = createAdapters(cfg);
   const verificationPipeline = new VerificationPipeline(repo, audit, adapters);
   const relief = createReliefService(repo, audit);
   const delivery = createDeliveryService(repo, audit);
@@ -128,7 +128,7 @@ function createApp({ repository, config } = {}) {
 
   const router = { add: route };
   const withRole = (allowed, handler) => async ctx => {
-    const actor = actorFromRequest(ctx.req);
+    const actor = await actorFromRequest(ctx.req, cfg);
     if (!cfg.FEATURE_DEMO_ROLE_HEADERS && cfg.NODE_ENV === 'production') {
       const { forbidden } = require('./core/errors');
       throw forbidden('Demo role headers are disabled in production');
