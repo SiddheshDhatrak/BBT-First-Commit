@@ -6,7 +6,7 @@ const roles = Object.freeze({
   NGO: 'NGO',
   FIELD: 'FIELD',
   GOVT: 'GOVT',
-  SYSTEM: 'SYSTEM'
+  SYSTEM: 'SYSTEM',
 });
 
 function actorFromRequest(req) {
@@ -14,7 +14,7 @@ function actorFromRequest(req) {
     id: req.headers['x-actor-id'] || 'anonymous',
     role: String(req.headers['x-role'] || roles.PUBLIC).toUpperCase(),
     // In production this comes only from a verified Cognito JWT claim.
-    organizationId: req.headers['x-org-id'] || null
+    organizationId: req.headers['x-org-id'] || null,
   };
 }
 
@@ -25,7 +25,11 @@ function requireRole(actor, allowed) {
 }
 
 function requireOrganization(actor, organizationId) {
-  if (actor.role !== roles.GOVT && actor.role !== roles.SYSTEM && actor.organizationId !== organizationId) {
+  if (
+    actor.role !== roles.GOVT &&
+    actor.role !== roles.SYSTEM &&
+    actor.organizationId !== organizationId
+  ) {
     throw forbidden('Cross-organization access is denied.');
   }
 }

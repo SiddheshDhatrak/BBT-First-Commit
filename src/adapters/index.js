@@ -11,4 +11,10 @@ function createAdapters() {
   };
 }
 
-module.exports = { createAdapters, MockS3Adapter, MockTextractAdapter, MockBedrockAdapter, VerificationPipeline };
+module.exports = {
+  createAdapters,
+  MockS3Adapter,
+  MockTextractAdapter,
+  MockBedrockAdapter,
+  VerificationPipeline,
+};

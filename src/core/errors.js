@@ -8,7 +8,8 @@ class AppError extends Error {
 }
 
 const badRequest = (message, details) => new AppError(400, 'BAD_REQUEST', message, details);
-const forbidden = (message = 'You are not authorized to perform this action.') => new AppError(403, 'FORBIDDEN', message);
+const forbidden = (message = 'You are not authorized to perform this action.') =>
+  new AppError(403, 'FORBIDDEN', message);
 const notFound = (message = 'Resource not found.') => new AppError(404, 'NOT_FOUND', message);
 const conflict = (message, details) => new AppError(409, 'CONFLICT', message, details);
 

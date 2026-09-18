@@ -19,10 +19,15 @@ class MockTextractAdapter {
     return {
       Blocks: blocks,
       DocumentMetadata: { Pages: 1 },
-      AnalyzeDocumentModelVersion: 'mock-1.0'
+      AnalyzeDocumentModelVersion: 'mock-1.0',
     };
   }
-  async startDocumentAnalysis({ DocumentLocation, FeatureTypes, NotificationChannel, OutputConfig }) {
+  async startDocumentAnalysis({
+    DocumentLocation,
+    FeatureTypes,
+    NotificationChannel,
+    OutputConfig,
+  }) {
     return { JobId: `textract-job-${Date.now()}`, JobStatus: 'IN_PROGRESS' };
   }
   async getDocumentAnalysis({ JobId }) {

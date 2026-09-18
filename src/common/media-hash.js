@@ -20,8 +20,8 @@ function extractImageFeatures(buffer) {
   }
   const header = buffer.subarray(0, Math.min(50, buffer.length));
   const hash = createHash('md5').update(header).digest('hex');
-  const pseudoWidth = parseInt(hash.substring(0, 4), 16) % 1000 + 100;
-  const pseudoHeight = parseInt(hash.substring(4, 8), 16) % 1000 + 100;
+  const pseudoWidth = (parseInt(hash.substring(0, 4), 16) % 1000) + 100;
+  const pseudoHeight = (parseInt(hash.substring(4, 8), 16) % 1000) + 100;
   const r = parseInt(hash.substring(8, 10), 16);
   const g = parseInt(hash.substring(10, 12), 16);
   const b = parseInt(hash.substring(12, 14), 16);
@@ -30,13 +30,18 @@ function extractImageFeatures(buffer) {
     height: pseudoHeight,
     channels: 3,
     avgColor: [r, g, b],
-    headerHash: hash.substring(0, 16)
+    headerHash: hash.substring(0, 16),
   };
 }
 
 function computeDHash(buffer, size = 8) {
   const features = extractImageFeatures(buffer);
-  const hash = features.headerHash || createHash('md5').update(buffer || Buffer.from('')).digest('hex').substring(0, 16);
+  const hash =
+    features.headerHash ||
+    createHash('md5')
+      .update(buffer || Buffer.from(''))
+      .digest('hex')
+      .substring(0, 16);
   let dhash = '';
   for (let i = 0; i < size * size; i++) {
     const bit = parseInt(hash[i % hash.length], 16) % 2;
@@ -67,5 +72,5 @@ module.exports = {
   extractImageFeatures,
   computeDHash,
   hammingDistance,
-  areSimilar
+  areSimilar,
 };
