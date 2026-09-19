@@ -66,8 +66,12 @@ jobs:
           aws ecs update-service \
             --cluster ${{ env.ECS_CLUSTER }} \
             --service ${{ env.ECS_SERVICE }} \
-            --force-new-deployment \
-            --wait-for-service-stability
+            --force-new-deployment
+
+      - name: Wait for Service Stability
+        run: |
+          echo "Waiting for service to stabilize..."
+          aws ecs wait services-stable --cluster ${{ env.ECS_CLUSTER }} --services ${{ env.ECS_SERVICE }}
 
   smoke-test:
     needs: deploy-ecs
