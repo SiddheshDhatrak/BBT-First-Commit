@@ -1,0 +1,135 @@
+name: deploy-production
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+  ECR_REGISTRY: ${{ secrets.ECR_REGISTRY }}
+  ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+  ECS_CLUSTER: ${{ secrets.ECS_CLUSTER }}
+  ECS_SERVICE: ${{ secrets.ECS_SERVICE }}
+  ALB_DNS: ${{ secrets.ALB_DNS }}
+
+jobs:
+  build-push:
+    runs-on: ubuntu-latest
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, tag, and push image
+        env:
+          ECR_REGISTRY: ${{ env.ECR_REGISTRY }}
+          ECR_REPOSITORY: ${{ env.ECR_REPOSITORY }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:${{ github.sha }} .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:${{ github.sha }}
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:${{ github.sha }} $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+      - name: Output image tag
+        id: meta
+        run: echo "tags=$ECR_REGISTRY/$ECR_REPOSITORY:${{ github.sha }}" >> $GITHUB_OUTPUT
+
+  deploy-ecs:
+    needs: build-push
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Update ECS Service with Health Check Grace Period
+        run: |
+          aws ecs update-service \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --service ${{ env.ECS_SERVICE }} \
+            --force-new-deployment \
+            --health-check-grace-period-seconds 60
+
+      - name: Wait for Service Stability (Polling)
+        run: |
+          echo "Waiting for service to stabilize..."
+          MAX_ATTEMPTS=40
+          DELAY=15
+          ATTEMPT=0
+          
+          while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
+            STATUS=$(aws ecs describe-services \
+              --cluster ${{ env.ECS_CLUSTER }} \
+              --services ${{ env.ECS_SERVICE }} \
+              --query 'services[0].{running:runningCount,pending:pendingCount,desired:desiredCount,deployments:deployments[0].rolloutState}' \
+              --output json)
+            
+            RUNNING=$(echo $STATUS | jq -r '.running')
+            DESIRED=$(echo $STATUS | jq -r '.desired')
+            ROLLOUT=$(echo $STATUS | jq -r '.deployments')
+            
+            echo "Attempt $((ATTEMPT+1))/$MAX_ATTEMPTS - Running: $RUNNING, Desired: $DESIRED, Rollout: $ROLLOUT"
+            
+            if [ "$RUNNING" -eq "$DESIRED" ] && [ "$RUNNING" -gt 0 ]; then
+              echo "Service stabilized with $RUNNING running tasks"
+              exit 0
+            fi
+            
+            ATTEMPT=$((ATTEMPT+1))
+            if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
+              sleep $DELAY
+            fi
+          done
+          
+          echo "Service failed to stabilize after $MAX_ATTEMPTS attempts"
+          aws ecs describe-services --cluster ${{ env.ECS_CLUSTER }} --services ${{ env.ECS_SERVICE }}
+          exit 1
+
+  smoke-test:
+    needs: deploy-ecs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for deployment to stabilize
+        run: sleep 60
+
+      - name: Health Check
+        run: |
+          echo "Checking health endpoint..."
+          for i in {1..10}; do
+            if curl -f -s --max-time 10 https://${{ env.ALB_DNS }}/api/v1/health > /dev/null; then
+              echo "Health check passed"
+              break
+            fi
+            echo "Attempt $i/10: Health check failed, retrying in 10s..."
+            sleep 10
+          done
+          
+          if ! curl -f -s --max-time 10 https://${{ env.ALB_DNS }}/api/v1/health > /dev/null; then
+            echo "Health check failed after 10 attempts"
+            exit 1
+          fi
+          
+          curl -f https://${{ env.ALB_DNS }}/api/v1/ready
+
+      - name: Verify Deployment
+        run: |
+          echo "Deployment verified successfully"

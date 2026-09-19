@@ -1,0 +1,50 @@
+{
+  "family": "rahatsetu-backend",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512",
+  "memory": "1024",
+  "executionRoleArn": "arn:aws:iam::013659367345:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::013659367345:role/ecsTaskRole",
+  "containerDefinitions": [
+    {
+      "name": "backend",
+      "image": "013659367345.dkr.ecr.ap-south-1.amazonaws.com/rahatsetu-backend:latest",
+      "portMappings": [
+        {
+          "containerPort": 3000,
+          "protocol": "tcp"
+        }
+      ],
+      "environment": [
+        { "name": "NODE_ENV", "value": "production" },
+        { "name": "REPOSITORY_DRIVER", "value": "postgres" },
+        { "name": "DATABASE_SSL", "value": "true" },
+        { "name": "FEATURE_MOCK_ADAPTERS", "value": "false" },
+        { "name": "FEATURE_DEMO_ROLE_HEADERS", "value": "false" },
+        { "name": "AWS_REGION", "value": "ap-south-1" }
+      ],
+      "secrets": [
+        { "name": "DATABASE_URL", "valueFrom": "arn:aws:secretsmanager:ap-south-1:013659367345:secret:rahatsetu/DATABASE_URL" },
+        { "name": "COGNITO_USER_POOL_ID", "valueFrom": "arn:aws:secretsmanager:ap-south-1:013659367345:secret:rahatsetu/COGNITO_USER_POOL_ID" },
+        { "name": "COGNITO_CLIENT_ID", "valueFrom": "arn:aws:secretsmanager:ap-south-1:013659367345:secret:rahatsetu/COGNITO_CLIENT_ID" },
+        { "name": "EVIDENCE_BUCKET", "valueFrom": "arn:aws:secretsmanager:ap-south-1:013659367345:secret:rahatsetu/EVIDENCE_BUCKET" }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/rahatsetu-backend",
+          "awslogs-region": "ap-south-1",
+          "awslogs-stream-prefix": "backend"
+        }
+      },
+      "healthCheck": {
+        "command": ["CMD-SHELL", "node -e \"require('http').get('http://localhost:3000/api/v1/health', (res) => { if (res.statusCode !== 200) process.exit(1); }).on('error', () => process.exit(1))\"" ],
+        "interval": 30,
+        "timeout": 60,
+        "retries": 3,
+        "startPeriod": 120
+      }
+    }
+  ]
+}

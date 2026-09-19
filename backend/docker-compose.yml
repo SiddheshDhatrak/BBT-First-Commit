@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: rahatsetu-postgres
+    environment:
+      POSTGRES_DB: rahatsetu
+      POSTGRES_USER: rahatsetu
+      POSTGRES_PASSWORD: rahatsetu
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rahatsetu -d rahatsetu"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+    name: rahatsetu-pgdata
