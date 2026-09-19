@@ -4,6 +4,9 @@ import { AnimatePresence, motion } from "motion/react";
 import { ArrowLeft, ArrowRight, CheckCircle2, ShieldCheck, Ticket } from "lucide-react";
 import { disasters, lineageExample } from "@/lib/mock";
 import { formatINR } from "@/lib/format";
+import { isApiEnabled } from "@/lib/api";
+import { useDonationLineage } from "@/lib/queries";
+import { LiveBadge } from "@/components/composite/LiveBadge";
 import { strings } from "@/lib/strings";
 import { PageHeader } from "@/components/composite/Chrome";
 import { FundLineageFlow } from "@/components/composite/Lineage";
@@ -223,11 +226,35 @@ export function MyDonations() {
 export function LineageDetail() {
   const { id } = useParams();
   const loc = useLocation() as { state?: { amount?: number; disaster?: string; ref?: string } };
-  const amount = typeof loc.state?.amount === "number" ? loc.state.amount : lineageExample.amount;
+  const live = useDonationLineage(id);
+  const liveOk = isApiEnabled() && !!live.data && !live.isError;
+  const liveFailed = isApiEnabled() && !!id && live.isError && !live.isPending;
+  const amount = typeof loc.state?.amount === "number" ? loc.state.amount : (liveOk && live.data?.donation ? live.data.donation.amount : lineageExample.amount);
   const splits = splitAmount(amount);
   return (
     <div>
-      <PageHeader eyebrow={loc.state?.disaster ?? "Assam Floods 2026"} title={`Donation ${id ?? lineageExample.donationId}`} sub="End-to-end lineage: donation → fund → NGO → program → vendor → invoice → payment." />
+      <PageHeader eyebrow={liveOk && live.data?.campaign ? live.data.campaign.name : (loc.state?.disaster ?? "Assam Floods 2026")} title={`Donation ${id ?? lineageExample.donationId}`} sub="End-to-end lineage: donation → fund → NGO → program → vendor → invoice → payment." action={<LiveBadge live={liveOk} />} />
+      {liveFailed && (
+        <p role="note" className="rs-inset mb-4 px-4 py-3 text-[13px] font-medium" style={{ color: "var(--text-secondary)" }}>
+          Live lineage isn't available for this demo ID — showing the synthetic trace below.
+        </p>
+      )}
+      {liveOk && live.data && (
+        <div className="rs-card mb-4 flex flex-wrap gap-x-8 gap-y-2 p-5">
+          {[
+            ["Ledger amount", formatINR(live.data.donation?.amount ?? 0)],
+            ["Allocations", String(live.data.allocations?.length ?? 0)],
+            ["Programs", String(live.data.programs?.length ?? 0)],
+            ["Expenses", String(live.data.expenses?.length ?? 0)],
+            ["Payments", String(live.data.transactions?.length ?? 0)],
+          ].map(([k, v]) => (
+            <span key={k}>
+              <span className="mono block text-[10.5px] uppercase tracking-[0.12em]" style={{ color: "var(--text-muted)" }}>{k}</span>
+              <span className="kpi block text-[18px] font-extrabold">{v}</span>
+            </span>
+          ))}
+        </div>
+      )}
       {loc.state?.ref && <p className="mono mb-4 inline-block rounded-full border px-3 py-1.5 text-xs" style={{ borderColor: "var(--border-subtle)", color: "var(--text-muted)" }}>Ref {loc.state.ref} · {strings.simulatedRail}</p>}
       <div className="grid gap-4 lg:grid-cols-[1.5fr_1fr]">
         <Reveal><FundLineageFlow amount={amount} splits={splits} donationId={id ?? lineageExample.donationId} /></Reveal>

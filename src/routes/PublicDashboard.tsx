@@ -4,7 +4,10 @@ import { motion } from "motion/react";
 import { ArrowUpRight, Award } from "lucide-react";
 import { disasters, ngos } from "@/lib/mock";
 import { formatINR } from "@/lib/format";
+import { isApiEnabled } from "@/lib/api";
+import { usePublicMetrics, type PublicMetrics } from "@/lib/queries";
 import { PageHeader } from "@/components/composite/Chrome";
+import { LiveBadge } from "@/components/composite/LiveBadge";
 import { TrustScoreRing } from "@/components/composite/Viz";
 import { CountUp } from "@/components/luxe/CountUp";
 import { Reveal, Stagger, StaggerItem } from "@/components/luxe/Reveal";
@@ -13,6 +16,44 @@ import { IsoBarChart } from "@/components/viz/IsoBarChart";
 import { shortINR } from "@/routes/Public";
 
 const BAR_COLORS = ["#2456D6", "#2E7CF6", "#0F7A52", "#0F6D8A"];
+
+/** Live ledger strip: renders only when VITE_API_URL is set and the call succeeds. */
+function LiveLedgerStrip() {
+  const live = usePublicMetrics();
+  if (!isApiEnabled() || !live.data) return null;
+  const m: PublicMetrics = live.data;
+  const cells: [string, string][] = [
+    ["Donated", formatINR(m.totalDonated)],
+    ["Gifts", String(m.donationCount)],
+    ["Verified delivery", String(m.deliveryVerifiedExpenses)],
+    ["Pending / flagged", `${m.deliveryPendingExpenses} / ${m.deliveryFlaggedExpenses}`],
+  ];
+  return (
+    <Reveal className="mb-4">
+      <div className="rs-card flex flex-wrap items-center gap-x-8 gap-y-3 p-5 md:px-7">
+        <LiveBadge live />
+        {cells.map(([k, v]) => (
+          <span key={k}>
+            <span className="mono block text-[10.5px] uppercase tracking-[0.12em]" style={{ color: "var(--text-muted)" }}>{k}</span>
+            <span className="kpi block text-[20px] font-extrabold leading-tight">{v}</span>
+          </span>
+        ))}
+        <span className="min-w-0 flex-1 basis-56">
+          <span className="mono block text-[10.5px] uppercase tracking-[0.12em]" style={{ color: "var(--text-muted)" }}>By campaign</span>
+          <span className="mt-1 block space-y-1.5">
+            {m.utilizationByCampaign.slice(0, 4).map((c) => (
+              <span key={c.campaignId} className="flex items-center gap-2 text-[12.5px] font-semibold">
+                <span className="truncate" style={{ color: "var(--text-secondary)" }}>{c.name}</span>
+                <span className="kpi ml-auto">{shortINR(c.donated)}</span>
+              </span>
+            ))}
+          </span>
+        </span>
+      </div>
+    </Reveal>
+  );
+}
+
 export default function PublicDashboard() {
   const [id, setId] = useState(disasters[0]?.id ?? "");
   const d = disasters.find((x) => x.id === id) ?? disasters[0];
@@ -25,7 +66,8 @@ export default function PublicDashboard() {
   ];
   return (
     <div>
-      <PageHeader eyebrow="Public · aggregate only" title="Transparency Dashboard" sub="Privacy-safe view. Fraud counts are aggregates — no investigation detail here." />
+      <PageHeader eyebrow="Public · aggregate only" title="Transparency Dashboard" sub="Privacy-safe view. Fraud counts are aggregates — no investigation detail here." action={<LiveBadge live={isApiEnabled()} />} />
+      <LiveLedgerStrip />
 
       <Stagger className="grid grid-cols-2 gap-4 xl:grid-cols-4">
         {[["Collected", d.collected, "Total raised"], ["Allocated", d.allocated, "Sent to NGOs"], ["Spent", d.spent, "Paid to vendors"], ["Remaining", d.collected - d.spent, "Unspent balance"]].map(([k, v, hint]) => (
