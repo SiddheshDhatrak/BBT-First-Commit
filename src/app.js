@@ -144,7 +144,11 @@ function createApp({ repository, config } = {}) {
       try {
         const { PostgresRepository } = require('./core/repository');
         const pool = PostgresRepository.createPool(cfg);
-        await pool.query('SELECT 1');
+        // Quick check with 2 second timeout
+        await Promise.race([
+          pool.query('SELECT 1'),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 2000))
+        ]);
         await pool.end();
         dbStatus = 'connected';
       } catch (e) {
@@ -164,7 +168,10 @@ function createApp({ repository, config } = {}) {
       try {
         const { PostgresRepository } = require('./core/repository');
         const pool = PostgresRepository.createPool(cfg);
-        await pool.query('SELECT 1');
+        await Promise.race([
+          pool.query('SELECT 1'),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 2000))
+        ]);
         await pool.end();
         dbStatus = 'connected';
       } catch (e) {
