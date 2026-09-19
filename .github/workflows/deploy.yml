@@ -13,9 +13,7 @@ env:
   AWS_REGION: ${{ secrets.AWS_REGION }}
   ECR_REGISTRY: ${{ secrets.ECR_REGISTRY }}
   ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
-  ECS_CLUSTER: ${{ secrets.ECS_CLUSTER }}
-  ECS_SERVICE: ${{ secrets.ECS_SERVICE }}
-  ALB_DNS: ${{ secrets.ALB_DNS }}
+  APP_RUNNER_SERVICE_ARN: ${{ secrets.APP_RUNNER_SERVICE_ARN }}
 
 jobs:
   build-push:
@@ -50,7 +48,7 @@ jobs:
         id: meta
         run: echo "tags=$ECR_REGISTRY/$ECR_REPOSITORY:${{ github.sha }}" >> $GITHUB_OUTPUT
 
-  deploy-ecs:
+  deploy-apprunner:
     needs: build-push
     runs-on: ubuntu-latest
     environment: production
@@ -61,74 +59,37 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Update ECS Service with Health Check Grace Period
+      - name: Trigger App Runner Deployment
         run: |
-          aws ecs update-service \
-            --cluster ${{ env.ECS_CLUSTER }} \
-            --service ${{ env.ECS_SERVICE }} \
-            --force-new-deployment \
-            --health-check-grace-period-seconds 60
+          aws apprunner start-deployment --service-arn ${{ secrets.APP_RUNNER_SERVICE_ARN }} --region ${{ env.AWS_REGION }}
 
-      - name: Wait for Service Stability (Polling)
+      - name: Wait for Deployment
         run: |
-          echo "Waiting for service to stabilize..."
-          MAX_ATTEMPTS=40
-          DELAY=15
-          ATTEMPT=0
-          
-          while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
-            STATUS=$(aws ecs describe-services \
-              --cluster ${{ env.ECS_CLUSTER }} \
-              --services ${{ env.ECS_SERVICE }} \
-              --query 'services[0].{running:runningCount,pending:pendingCount,desired:desiredCount,deployments:deployments[0].rolloutState}' \
-              --output json)
-            
-            RUNNING=$(echo $STATUS | jq -r '.running')
-            DESIRED=$(echo $STATUS | jq -r '.desired')
-            ROLLOUT=$(echo $STATUS | jq -r '.deployments')
-            
-            echo "Attempt $((ATTEMPT+1))/$MAX_ATTEMPTS - Running: $RUNNING, Desired: $DESIRED, Rollout: $ROLLOUT"
-            
-            if [ "$RUNNING" -eq "$DESIRED" ] && [ "$RUNNING" -gt 0 ]; then
-              echo "Service stabilized with $RUNNING running tasks"
-              exit 0
-            fi
-            
-            ATTEMPT=$((ATTEMPT+1))
-            if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
-              sleep $DELAY
-            fi
-          done
-          
-          echo "Service failed to stabilize after $MAX_ATTEMPTS attempts"
-          aws ecs describe-services --cluster ${{ env.ECS_CLUSTER }} --services ${{ env.ECS_SERVICE }}
-          exit 1
-
-  smoke-test:
-    needs: deploy-ecs
-    runs-on: ubuntu-latest
-    steps:
-      - name: Wait for deployment to stabilize
-        run: sleep 60
+          echo "Waiting for App Runner deployment to complete..."
+          aws apprunner wait service-updated --service-arn ${{ secrets.APP_RUNNER_SERVICE_ARN }} --region ${{ env.AWS_REGION }}
 
       - name: Health Check
         run: |
+          # Get the service URL
+          SERVICE_URL=$(aws apprunner describe-service --service-arn ${{ secrets.APP_RUNNER_SERVICE_ARN }} --region ${{ env.AWS_REGION }} --query 'Service.ServiceUrl' --output text)
+          echo "Service URL: https://$SERVICE_URL"
+          
           echo "Checking health endpoint..."
-          for i in {1..10}; do
-            if curl -f -s --max-time 10 https://${{ env.ALB_DNS }}/api/v1/health > /dev/null; then
+          for i in {1..20}; do
+            if curl -f -s --max-time 15 "https://$SERVICE_URL/api/v1/health" > /dev/null; then
               echo "Health check passed"
               break
             fi
-            echo "Attempt $i/10: Health check failed, retrying in 10s..."
-            sleep 10
+            echo "Attempt $i/20: Health check failed, retrying in 15s..."
+            sleep 15
           done
           
-          if ! curl -f -s --max-time 10 https://${{ env.ALB_DNS }}/api/v1/health > /dev/null; then
-            echo "Health check failed after 10 attempts"
+          if ! curl -f -s --max-time 15 "https://$SERVICE_URL/api/v1/health" > /dev/null; then
+            echo "Health check failed after 20 attempts"
             exit 1
           fi
           
-          curl -f https://${{ env.ALB_DNS }}/api/v1/ready
+          curl -f "https://$SERVICE_URL/api/v1/ready"
 
       - name: Verify Deployment
         run: |
