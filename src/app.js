@@ -137,15 +137,49 @@ function createApp({ repository, config } = {}) {
     return handler({ ...ctx, actor });
   };
 
-  router.add('GET', '/api/v1/health', async () => ({
-    body: { status: 'ok', service: 'rahatsetu', timestamp: new Date().toISOString() },
-  }));
-  router.add('GET', '/api/v1/ready', async () => ({
-    body: {
-      status: 'ready',
-      dependencies: { repository: 'memory-ready', evidenceAdapter: 'mock-ready' },
-    },
-  }));
+  router.add('GET', '/api/v1/health', async (ctx) => {
+    const cfg = ctx.config || loadConfig();
+    let dbStatus = 'unknown';
+    if (cfg.REPOSITORY_DRIVER === 'postgres') {
+      try {
+        const { PostgresRepository } = require('./core/repository');
+        const pool = PostgresRepository.createPool(cfg);
+        await pool.query('SELECT 1');
+        await pool.end();
+        dbStatus = 'connected';
+      } catch (e) {
+        dbStatus = 'disconnected';
+      }
+    } else {
+      dbStatus = 'memory';
+    }
+    return {
+      body: { status: 'ok', service: 'rahatsetu', timestamp: new Date().toISOString(), database: dbStatus },
+    };
+  });
+  router.add('GET', '/api/v1/ready', async (ctx) => {
+    const cfg = ctx.config || loadConfig();
+    let dbStatus = 'unknown';
+    if (cfg.REPOSITORY_DRIVER === 'postgres') {
+      try {
+        const { PostgresRepository } = require('./core/repository');
+        const pool = PostgresRepository.createPool(cfg);
+        await pool.query('SELECT 1');
+        await pool.end();
+        dbStatus = 'connected';
+      } catch (e) {
+        dbStatus = 'disconnected';
+      }
+    } else {
+      dbStatus = 'memory';
+    }
+    return {
+      body: {
+        status: dbStatus === 'connected' || dbStatus === 'memory' ? 'ready' : 'not ready',
+        dependencies: { repository: dbStatus, evidenceAdapter: 'mock-ready' },
+      },
+    };
+  });
 
   router.add(
     'POST',
