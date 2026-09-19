@@ -138,7 +138,7 @@ function createApp({ repository, config } = {}) {
   };
 
   router.add('GET', '/api/v1/health', async () => ({
-    body: { status: 'ok', service: 'rahatsetu', dataMode: 'memory', syntheticDataOnly: true },
+    body: { status: 'ok', service: 'rahatsetu', timestamp: new Date().toISOString() },
   }));
   router.add('GET', '/api/v1/ready', async () => ({
     body: {
