@@ -68,6 +68,7 @@ export function Login() {
                 <option value="donor">Donor — give & trace</option>
                 <option value="ngo">NGO — programs & invoices</option>
                 <option value="vendor">Vendor — KYC & payments</option>
+                <option value="field">Field — delivery proof upload</option>
                 <option value="auditor">Auditor — investigations</option>
                 <option value="admin">Admin — users & rules</option>
               </select>
