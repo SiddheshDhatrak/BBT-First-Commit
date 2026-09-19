@@ -23,3 +23,9 @@ Login via `/login` and pick a role (mock Cognito): donor / ngo / vendor / audito
 - Tokens in `src/index.css` (`:root[data-theme]`); theme persists `localStorage.rahatsetu_theme`, respects `prefers-reduced-motion`.
 - INR via `formatINR()` (en-IN); bank numbers masked to last-4.
 - `SYNTHETIC DEMO DATA` ribbon everywhere; fraud copy uses “flagged for review / risk signal” only.
+
+## Full-stack integration (this branch)
+- `backend/` = byte-identical import of `main` (Express 5, `:3000`, `/api/v1`). Run: `npm --prefix backend ci && npm --prefix backend start`.
+- Backend checks: `npm --prefix backend test`, `node backend/scripts/test-ghost-delivery.js`.
+- Frontend talks to it via `src/lib/api.ts` when `VITE_API_URL` is set (see `.env.example`); otherwise mock data.
+- CI note: GitHub reads only root `.github/`; backend `ci.yml`/`deploy.yml` live under `backend/.github/` on this branch, so backend CI runs on `main`. The future `Frontend→main` PR must move workflows back to root and repoint paths (`backend/` prefix) — do not edit them here.
