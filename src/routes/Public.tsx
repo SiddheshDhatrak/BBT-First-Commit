@@ -146,11 +146,11 @@ export function Landing() {
       <Reveal className="mt-12">
         <section className="rs-card overflow-hidden" aria-label="Impact by disaster">
           <div className="grid md:grid-cols-[1fr_1.4fr]">
-            <div className="p-7 md:p-9" style={{ background: "var(--primary-700)", color: "#fff" }}>
+            <div className="rs-brand-panel p-7 md:p-9">
               <p className="text-[11px] font-extrabold uppercase tracking-[0.14em] opacity-70">Impact ledger</p>
               <p className="mt-2 text-[28px] font-extrabold leading-tight tracking-tight">Money with a memory.</p>
               <p className="mt-3 max-w-xs text-sm leading-6 opacity-75">Each disaster fund reconciles collected, allocated and spent — nightly, in public.</p>
-              <Link to="/dashboard" className="mt-5 inline-flex min-h-[44px] items-center gap-2 rounded-xl bg-white px-5 text-[14px] font-extrabold" style={{ color: "var(--primary-700)" }}>Open transparency dashboard</Link>
+              <Link to="/dashboard" className="rs-brand-cta mt-5 inline-flex min-h-[44px] items-center gap-2 rounded-xl px-5 text-[14px] font-extrabold">Open transparency dashboard</Link>
             </div>
             <ul className="divide-y" style={{ borderColor: "var(--border-subtle)" }}>
               {disasters.map((d, i) => (

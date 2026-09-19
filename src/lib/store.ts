@@ -4,9 +4,17 @@ import { persist } from "zustand/middleware";
 export type Role = "donor" | "ngo" | "vendor" | "auditor" | "admin" | "guest";
 export type Theme = "light" | "dark";
 
+export interface UserInfo {
+  name: string;
+  email: string;
+}
+
 interface UIState {
   role: Role;
   setRole: (r: Role) => void;
+  user: UserInfo | null;
+  setUser: (u: UserInfo | null) => void;
+  signOut: () => void;
   sidebarOpen: boolean;
   toggleSidebar: () => void;
   mobileNavOpen: boolean;
@@ -32,6 +40,9 @@ export const useUI = create<UIState>()(
     (set) => ({
       role: "guest",
       setRole: (role) => set({ role }),
+      user: null,
+      setUser: (user) => set({ user }),
+      signOut: () => set({ role: "guest", user: null, mobileNavOpen: false }),
       sidebarOpen: true,
       toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
       mobileNavOpen: false,
@@ -41,7 +52,7 @@ export const useUI = create<UIState>()(
     }),
     {
       name: "rahatsetu_ui",
-      partialize: (s) => ({ role: s.role, theme: s.theme, sidebarOpen: s.sidebarOpen }) as UIState,
+      partialize: (s) => ({ role: s.role, user: s.user, theme: s.theme, sidebarOpen: s.sidebarOpen }) as UIState,
     },
   ),
 );

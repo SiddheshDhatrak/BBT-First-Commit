@@ -63,9 +63,15 @@ function RoleHome() {
   return <DonorHome />;
 }
 
+const PUBLIC_PREFIXES = ["/dashboard", "/methodology", "/login", "/register", "/pending", "/donate", "/donations", "/org"];
+
 function ScrollToTop() {
   const { pathname } = useLocation();
   useEffect(() => {
+    const isPublic = pathname === "/" || PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+    // Only reset window scroll for public marketing pages.
+    // Inside /app console the sidebar layout preserves scroll so the board doesn't jump to top.
+    if (!isPublic) return;
     window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
   }, [pathname]);
   return null;

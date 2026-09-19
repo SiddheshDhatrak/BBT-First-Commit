@@ -8,7 +8,7 @@ import { StatusTimeline } from "@/components/composite/Viz";
 import { Reveal } from "@/components/luxe/Reveal";
 
 export function Login() {
-  const { setRole, setTheme } = useUI();
+  const { setRole, setUser, setTheme } = useUI();
   const nav = useNavigate();
   const loc = useLocation() as { state?: { from?: string } };
   const [email, setEmail] = useState("");
@@ -19,7 +19,7 @@ export function Login() {
       <PageHeader eyebrow="Welcome back" title="Login" sub={fromDonate ? "Sign in to donate — you'll return straight back to complete your gift." : "Role is resolved after auth (mocked Cognito for demo)."} />
       <div className="mx-auto grid max-w-4xl gap-4 lg:grid-cols-[.9fr_1.1fr]">
         <Reveal>
-          <div className="relative flex h-full flex-col justify-between overflow-hidden rounded-[22px] p-7" style={{ background: "var(--primary-700)", color: "#fff" }}>
+          <div className="rs-brand-panel relative flex h-full flex-col justify-between overflow-hidden rounded-[22px] p-7">
             <div>
               <p className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-white/70">RahatSetu Access</p>
               <p className="mt-3 text-[28px] font-extrabold leading-tight tracking-tight">One login.<br />Every role,<br />covered.</p>
@@ -36,6 +36,12 @@ export function Login() {
             className="rs-card space-y-4 p-6 md:p-8"
             onSubmit={(e) => {
               e.preventDefault();
+              const cleanEmail = email.trim();
+              const fallback = `${role}@rahatsetu.demo`;
+              const finalEmail = cleanEmail || fallback;
+              const prefix = finalEmail.split("@")[0].replace(/[._-]+/g, " ").trim() || role;
+              const name = prefix.replace(/\b\w/g, (c) => c.toUpperCase());
+              setUser({ name, email: finalEmail });
               setRole(role);
               if (role === "auditor" || role === "admin") {
                 try {
@@ -82,9 +88,11 @@ const KINDS = [
 ] as const;
 
 export function Register() {
-  const { setRole } = useUI();
+  const { setRole, setUser } = useUI();
   const nav = useNavigate();
   const [kind, setKind] = useState<(typeof KINDS)[number]["k"]>("Donor");
+  const [name, setName] = useState("");
+  const [regEmail, setRegEmail] = useState("");
   return (
     <div>
       <PageHeader eyebrow="Join" title="Create your account" sub="Donor / NGO / Vendor self-registration. NGO & vendor go to pending approval." />
@@ -111,12 +119,14 @@ export function Register() {
           className="rs-card mx-auto max-w-lg space-y-4 p-6 md:p-8"
           onSubmit={(e) => {
             e.preventDefault();
-            if (kind === "Donor") { setRole("donor"); nav("/app"); }
-            else { setRole("guest"); nav("/pending"); }
+            const cleanName = name.trim() || (kind === "Donor" ? "Donor" : `${kind} Applicant`);
+            const cleanEmail = regEmail.trim() || `${kind.toLowerCase()}@rahatsetu.demo`;
+            if (kind === "Donor") { setUser({ name: cleanName, email: cleanEmail }); setRole("donor"); nav("/app"); }
+            else { setUser(null); setRole("guest"); nav("/pending"); }
           }}
         >
-          <label className="block text-sm font-bold">Organisation / full name<input required className="rs-input mt-2" autoComplete="organization" placeholder="Seva Sahyog Foundation" /></label>
-          <label className="block text-sm font-bold">Email<input required type="email" className="rs-input mt-2" autoComplete="email" placeholder="you@example.org" /></label>
+          <label className="block text-sm font-bold">Organisation / full name<input required value={name} onChange={(e) => setName(e.target.value)} className="rs-input mt-2" autoComplete="organization" placeholder="Seva Sahyog Foundation" /></label>
+          <label className="block text-sm font-bold">Email<input required value={regEmail} onChange={(e) => setRegEmail(e.target.value)} type="email" className="rs-input mt-2" autoComplete="email" placeholder="you@example.org" /></label>
           <button type="submit" className="rs-btn-accent w-full !min-h-[52px]">Create {kind} account <ArrowRight size={16} aria-hidden /></button>
         </form>
       </Reveal>

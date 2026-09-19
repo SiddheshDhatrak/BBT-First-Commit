@@ -98,8 +98,63 @@ export function VendorPayments() {
   );
 }
 
+type AdminUserRow = { email: string; role: string; status: "active" | "pending" | "disabled" };
+
+const DEFAULT_USERS: AdminUserRow[] = [
+  { email: "auditor@relief.gov", role: "auditor", status: "active" },
+  { email: "seva@ngo.org", role: "ngo", status: "active" },
+  { email: "trader@vendor.in", role: "vendor", status: "pending" },
+];
+
 export function AdminUsers() {
-  const rows = [["auditor@relief.gov", "auditor", "active"], ["seva@ngo.org", "ngo", "active"], ["trader@vendor.in", "vendor", "pending"]] as const;
+  const [rows, setRows] = useState<AdminUserRow[]>(() => {
+    try {
+      const raw = localStorage.getItem("rahatsetu_admin_users");
+      if (raw) {
+        const parsed = JSON.parse(raw) as AdminUserRow[];
+        if (Array.isArray(parsed) && parsed.length) return parsed;
+      }
+    } catch { /* ignore */ }
+    return DEFAULT_USERS;
+  });
+  const [managing, setManaging] = useState<string | null>(null);
+  const [draftRole, setDraftRole] = useState("donor");
+  const [draftStatus, setDraftStatus] = useState<AdminUserRow["status"]>("active");
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const openManage = (email: string) => {
+    const found = rows.find((r) => r.email === email);
+    if (!found) return;
+    setDraftRole(found.role);
+    setDraftStatus(found.status);
+    setManaging(email);
+    setNotice(null);
+  };
+
+  const saveManage = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!managing) return;
+    setRows((prev) => {
+      const next = prev.map((r) => (r.email === managing ? { ...r, role: draftRole, status: draftStatus } : r));
+      try { localStorage.setItem("rahatsetu_admin_users", JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+    setNotice(`Saved ${managing} → ${draftRole} / ${draftStatus}.`);
+    setManaging(null);
+  };
+
+  const toggleStatus = (email: string) => {
+    setRows((prev) => {
+      const next = prev.map((r) => {
+        if (r.email !== email) return r;
+        const nextStatus = r.status === "active" ? "disabled" as const : "active" as const;
+        return { ...r, status: nextStatus };
+      });
+      try { localStorage.setItem("rahatsetu_admin_users", JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  };
+
   return (
     <div>
       <PageHeader eyebrow="Admin" title="Users & Roles" sub="Assign roles, deactivate/reactivate. No fraud content here (separation of duties)." />
@@ -110,37 +165,162 @@ export function AdminUsers() {
             <thead><tr><th scope="col">User</th><th scope="col">Role</th><th scope="col">Status</th><th scope="col"><span className="sr-only">Actions</span></th></tr></thead>
             <tbody>
               {rows.map((r) => (
-                <tr key={r[0]}>
-                  <td className="font-bold">{r[0]}</td>
-                  <td><span className="mono rounded-md px-2 py-1 text-[11.5px] font-bold capitalize" style={{ background: "var(--accent-soft)", color: "var(--accent-600)" }}>{r[1]}</span></td>
-                  <td><span className="inline-flex items-center gap-1.5 text-[13px] font-bold" style={{ color: r[2] === "active" ? "var(--risk-low)" : "var(--risk-med)" }}><span className="h-1.5 w-1.5 rounded-full" style={{ background: "currentColor" }} aria-hidden />{r[2]}</span></td>
-                  <td className="text-right"><button type="button" className="rs-btn-secondary rs-btn-sm">Manage</button></td>
+                <tr key={r.email}>
+                  <td className="font-bold">{r.email}</td>
+                  <td><span className="mono rounded-md px-2 py-1 text-[11.5px] font-bold capitalize" style={{ background: "var(--accent-soft)", color: "var(--accent-600)" }}>{r.role}</span></td>
+                  <td><button type="button" onClick={() => toggleStatus(r.email)} title={`Toggle status (currently ${r.status})`} className="inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[13px] font-bold transition-colors hover:bg-[var(--bg-surface-alt)]" style={{ color: r.status === "active" ? "var(--risk-low)" : r.status === "pending" ? "var(--risk-med)" : "var(--risk-high)" }}><span className="h-1.5 w-1.5 rounded-full" style={{ background: "currentColor" }} aria-hidden />{r.status}</button></td>
+                  <td className="text-right"><button type="button" onClick={() => openManage(r.email)} aria-haspopup="dialog" className="rs-btn-secondary rs-btn-sm">Manage</button></td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       </Reveal>
+      {notice && <p role="status" className="mt-3 text-[13px] font-bold" style={{ color: "var(--risk-low)" }}>{notice}</p>}
+      {managing && (
+        <div role="dialog" aria-modal="true" aria-label={`Manage ${managing}`} className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <button type="button" aria-label="Close manage dialog" onClick={() => setManaging(null)} className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+          <motion.form
+            initial={{ opacity: 0, y: 12, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={{ duration: 0.2 }}
+            onSubmit={saveManage}
+            className="rs-card relative w-full max-w-md space-y-4 p-6"
+          >
+            <p className="eyebrow">Manage user</p>
+            <p className="mono truncate text-[13px] font-bold">{managing}</p>
+            <label className="block text-sm font-bold">Role
+              <select value={draftRole} onChange={(e) => setDraftRole(e.target.value)} className="rs-input mt-2">
+                <option value="donor">donor</option>
+                <option value="ngo">ngo</option>
+                <option value="vendor">vendor</option>
+                <option value="auditor">auditor</option>
+                <option value="admin">admin</option>
+              </select>
+            </label>
+            <label className="block text-sm font-bold">Status
+              <select value={draftStatus} onChange={(e) => setDraftStatus(e.target.value as AdminUserRow["status"])} className="rs-input mt-2">
+                <option value="active">active</option>
+                <option value="pending">pending</option>
+                <option value="disabled">disabled</option>
+              </select>
+            </label>
+            <div className="flex gap-2.5">
+              <button type="button" onClick={() => setManaging(null)} className="rs-btn-secondary rs-btn-sm flex-1">Cancel</button>
+              <button type="submit" className="rs-btn-primary rs-btn-sm flex-1">Save changes</button>
+            </div>
+          </motion.form>
+        </div>
+      )}
     </div>
   );
 }
 
+type RuleRow = { id: string; title: string; value: number; unit: string; enabled: boolean };
+
+const DEFAULT_RULES: RuleRow[] = [
+  { id: "DUP-AMT-02", title: "Duplicate amount window", value: 48, unit: "h", enabled: true },
+  { id: "PRICE-BAND", title: "Emergency price band", value: 25, unit: "%", enabled: true },
+  { id: "NEW-VENDOR", title: "New-vendor context flag", value: 30, unit: "d", enabled: true },
+];
+
 export function AdminRules() {
+  const [rules, setRules] = useState<RuleRow[]>(() => {
+    try {
+      const raw = localStorage.getItem("rahatsetu_admin_rules");
+      if (raw) {
+        const parsed = JSON.parse(raw) as RuleRow[];
+        if (Array.isArray(parsed) && parsed.length) return parsed;
+      }
+    } catch { /* ignore */ }
+    return DEFAULT_RULES;
+  });
+  const [editing, setEditing] = useState<string | null>(null);
+  const [draftValue, setDraftValue] = useState("48");
+  const [draftEnabled, setDraftEnabled] = useState(true);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const openEdit = (id: string) => {
+    const found = rules.find((r) => r.id === id);
+    if (!found) return;
+    setDraftValue(String(found.value));
+    setDraftEnabled(found.enabled);
+    setEditing(id);
+    setNotice(null);
+  };
+
+  const toggleEnabled = (id: string) => {
+    setRules((prev) => {
+      const next = prev.map((r) => (r.id === id ? { ...r, enabled: !r.enabled } : r));
+      try { localStorage.setItem("rahatsetu_admin_rules", JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  };
+
+  const saveEdit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editing) return;
+    const parsed = Number(draftValue);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      setNotice("Enter a value greater than 0.");
+      return;
+    }
+    setRules((prev) => {
+      const next = prev.map((r) => (r.id === editing ? { ...r, value: parsed, enabled: draftEnabled } : r));
+      try { localStorage.setItem("rahatsetu_admin_rules", JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+    const rule = rules.find((r) => r.id === editing);
+    setNotice(`Saved ${editing} → ${parsed}${rule?.unit ?? ""} · ${draftEnabled ? "enabled" : "disabled"}.`);
+    setEditing(null);
+  };
+
+  const editingRule = rules.find((r) => r.id === editing) ?? null;
+
   return (
     <div>
       <PageHeader eyebrow="Admin" title="Fraud Rule Thresholds" sub="Enable/disable deterministic rules + per-disaster overrides." />
       <Stagger className="space-y-3">
-        {[["DUP-AMT-02", "Duplicate amount window", "48h · enabled"], ["PRICE-BAND", "Emergency price band", "±25% · enabled"], ["NEW-VENDOR", "New-vendor context flag", "30d · enabled"]].map(([id, t, m]) => (
-          <StaggerItem key={id}>
+        {rules.map((r) => (
+          <StaggerItem key={r.id}>
             <div className="rs-card flex flex-wrap items-center gap-4 p-5">
-              <span className="mono rounded-xl border px-3 py-1.5 text-xs font-bold" style={{ background: "var(--bg-surface-alt)", borderColor: "var(--border-subtle)" }}>{id}</span>
-              <p className="min-w-0 flex-1 basis-48 text-[17px] font-extrabold tracking-tight">{t}</p>
-              <span className="mono text-xs" style={{ color: "var(--text-muted)" }}>{m}</span>
-              <button type="button" className="rs-btn-secondary rs-btn-sm"><SlidersHorizontal size={14} aria-hidden /> Edit threshold</button>
+              <span className="mono rounded-xl border px-3 py-1.5 text-xs font-bold" style={{ background: "var(--bg-surface-alt)", borderColor: "var(--border-subtle)" }}>{r.id}</span>
+              <p className="min-w-0 flex-1 basis-48 text-[17px] font-extrabold tracking-tight">{r.title}</p>
+              <button type="button" onClick={() => toggleEnabled(r.id)} title={`Click to ${r.enabled ? "disable" : "enable"}`} aria-pressed={r.enabled} className="mono rounded-full border px-2.5 py-1 text-xs font-bold transition-colors hover:-translate-y-0.5" style={{ borderColor: "var(--border-subtle)", color: r.enabled ? "var(--risk-low)" : "var(--text-muted)", background: r.enabled ? "color-mix(in srgb, var(--risk-low) 10%, transparent)" : "transparent" }}>
+                {r.unit === "%" ? `±${r.value}${r.unit}` : `${r.value}${r.unit}`} · {r.enabled ? "enabled" : "disabled"}
+              </button>
+              <button type="button" onClick={() => openEdit(r.id)} aria-haspopup="dialog" className="rs-btn-secondary rs-btn-sm"><SlidersHorizontal size={14} aria-hidden /> Edit threshold</button>
             </div>
           </StaggerItem>
         ))}
       </Stagger>
+      {notice && <p role="status" className="mt-3 text-[13px] font-bold" style={{ color: notice.startsWith("Enter") ? "var(--risk-high)" : "var(--risk-low)" }}>{notice}</p>}
+      {editingRule && (
+        <div role="dialog" aria-modal="true" aria-label={`Edit ${editingRule.id}`} className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <button type="button" aria-label="Close edit threshold dialog" onClick={() => setEditing(null)} className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+          <motion.form
+            initial={{ opacity: 0, y: 12, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={{ duration: 0.2 }}
+            onSubmit={saveEdit}
+            className="rs-card relative w-full max-w-md space-y-4 p-6"
+          >
+            <p className="eyebrow">Edit threshold</p>
+            <p className="text-[16px] font-extrabold tracking-tight">{editingRule.title} <span className="mono text-[12px]" style={{ color: "var(--text-muted)" }}>{editingRule.id}</span></p>
+            <label className="block text-sm font-bold" htmlFor="rule-value">Threshold value ({editingRule.unit})
+              <input id="rule-value" inputMode="decimal" value={draftValue} onChange={(e) => setDraftValue(e.target.value.replace(/[^0-9.]/g, ""))} className="rs-input mono mt-2" placeholder={String(editingRule.value)} />
+            </label>
+            <label className="flex cursor-pointer items-center justify-between gap-3 rounded-xl border px-3.5 py-3 text-sm font-bold" style={{ borderColor: "var(--border-subtle)" }}>
+              <span>Rule enabled</span>
+              <input type="checkbox" checked={draftEnabled} onChange={(e) => setDraftEnabled(e.target.checked)} className="h-5 w-5 accent-[#2E7CF6]" aria-label="Rule enabled" />
+            </label>
+            <div className="flex gap-2.5">
+              <button type="button" onClick={() => setEditing(null)} className="rs-btn-secondary rs-btn-sm flex-1">Cancel</button>
+              <button type="submit" className="rs-btn-primary rs-btn-sm flex-1">Save threshold</button>
+            </div>
+          </motion.form>
+        </div>
+      )}
     </div>
   );
 }

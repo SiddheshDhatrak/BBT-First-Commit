@@ -24,13 +24,13 @@ export function OrgProfile() {
           </div>
         </Reveal>
         <Reveal delay={0.08}>
-          <div className="flex h-full flex-col justify-between gap-4 rounded-[20px] p-6 md:p-8" style={{ background: "var(--primary-700)", color: "#fff" }}>
+          <div className="rs-brand-panel flex h-full flex-col justify-between gap-4 rounded-[20px] p-6 md:p-8">
             <div>
               <p className="text-[11px] font-extrabold uppercase tracking-[0.14em] opacity-70">Donor desk</p>
               <p className="mt-2 text-[24px] font-extrabold leading-tight tracking-tight">Fund this NGO<br />in one tap.</p>
             </div>
             <div>
-              <Link to="/donate" className="inline-flex min-h-[44px] items-center gap-2 rounded-xl bg-white px-5 text-[14px] font-extrabold" style={{ color: "var(--primary-700)" }}><HandCoins size={15} aria-hidden /> Donate to Assam Floods</Link>
+              <Link to="/donate" className="rs-brand-cta inline-flex min-h-[44px] items-center gap-2 rounded-xl px-5 text-[14px] font-extrabold"><HandCoins size={15} aria-hidden /> Donate to Assam Floods</Link>
               <p className="mono mt-4 text-[10.5px] tracking-[0.14em] opacity-60">HASH-VERIFIED · SIMULATED RAIL</p>
             </div>
           </div>
@@ -83,12 +83,12 @@ export function DonorHome() {
           </div>
         </Reveal>
         <Reveal delay={0.08}>
-          <div className="flex h-full flex-col justify-between gap-4 rounded-[20px] p-6" style={{ background: "var(--primary-700)", color: "#fff" }}>
+          <div className="rs-brand-panel flex h-full flex-col justify-between gap-4 rounded-[20px] p-6">
             <div>
               <p className="inline-flex items-center gap-1.5 text-[11px] font-extrabold uppercase tracking-[0.14em] opacity-70"><Sparkles size={13} aria-hidden /> Impact note</p>
               <p className="mt-2 text-[22px] font-extrabold leading-snug tracking-tight">Your ₹5,000 fed 40 families this week.</p>
             </div>
-            <Link to="/donate" className="inline-flex w-fit min-h-[44px] items-center rounded-xl bg-white px-5 text-[14px] font-extrabold" style={{ color: "var(--primary-700)" }}>Give again</Link>
+            <Link to="/donate" className="rs-brand-cta inline-flex w-fit min-h-[44px] items-center rounded-xl px-5 text-[14px] font-extrabold">Give again</Link>
           </div>
         </Reveal>
       </div>
