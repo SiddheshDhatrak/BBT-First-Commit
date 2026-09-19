@@ -7,6 +7,7 @@ import {
   Menu, Scale, Search, ShieldCheck, Sparkles, Users, FileWarning, X, ArrowUpRight,
 } from "lucide-react";
 import { ThemeToggle, SyntheticRibbon } from "@/components/composite/Chrome";
+import { ConnectionDot } from "@/components/composite/ConnectionDot";
 import { Logo } from "@/components/brand/Logo";
 import { useLenis } from "@/components/luxe/useLenis";
 import { useUI, type Role } from "@/lib/store";
@@ -119,6 +120,7 @@ export function PublicShell() {
             ))}
           </nav>
           <div className="ml-auto flex items-center gap-2">
+            <ConnectionDot />
             <ThemeToggle />
             {role === "guest" ? (
               <>
@@ -464,6 +466,7 @@ export function AppShell() {
               </div>
             </form>
             <div className="ml-auto flex items-center gap-2">
+              <ConnectionDot />
               <span className="mono hidden rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] xl:inline-block" style={{ borderColor: "var(--border-subtle)", color: "var(--text-secondary)", background: "var(--bg-surface-alt)" }}>
                 {role} console
               </span>
