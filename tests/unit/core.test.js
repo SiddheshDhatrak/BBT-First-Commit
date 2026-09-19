@@ -1,4 +1,6 @@
 const { createApp } = require('../../src/app');
+const { MemoryRepository } = require('../../src/core/repository');
+const { seed } = require('../../src/data/seed');
 const {
   perceptualHash,
   computeDHash,
@@ -27,7 +29,8 @@ async function runUnitTests() {
 
   console.log('=== Unit Tests ===\n');
 
-  const { repo, services } = createApp();
+  const repo = new MemoryRepository(seed);
+  const { repo: _, services } = createApp({ repository: repo });
   const { relief, delivery, oversight } = services;
   const govtActor = { id: 'govt-test', role: 'GOVT', organizationId: null };
   const ngoActor = { id: 'ngo-test', role: 'NGO', organizationId: ORG_ID };
