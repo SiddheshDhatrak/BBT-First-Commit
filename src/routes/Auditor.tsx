@@ -2,8 +2,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence } from "motion/react";
 import { ArrowUpDown, CheckCircle2, Inbox, MapPin, SearchCheck, Sparkles } from "lucide-react";
-import { alerts, copilotCanned } from "@/lib/mock";
+import { alerts, copilotCanned, type Alert as MockAlert } from "@/lib/mock";
 import { formatINR } from "@/lib/format";
+import { agent, isAgentEnabled, isApiEnabled } from "@/lib/api";
+import { parseAgentAnswer, useFraudAlerts, useResolveAlert, type LiveAlert } from "@/lib/queries";
 import { PageHeader } from "@/components/composite/Chrome";
 import { EvidenceCard, RiskBadge, SignalBanner } from "@/components/composite/Risk";
 import { Reveal, Stagger, StaggerItem } from "@/components/luxe/Reveal";
@@ -61,10 +63,57 @@ export function InvestigationQueue() {
     setParams(q ? { q } : {}, { replace: true });
   }, [q, setParams]);
 
+  const liveAlerts = useFraudAlerts();
+  const resolveAlert = useResolveAlert();
+  const [resolvingId, setResolvingId] = useState<string | null>(null);
+  const [liveNote, setLiveNote] = useState<string | null>(null);
+  const liveRows = (liveAlerts.data ?? []).filter((a) =>
+    `${a.entityType ?? ""} ${a.entityId ?? ""} ${a.id} ${a.status ?? ""}`.toLowerCase().includes(q.toLowerCase()),
+  );
+  const liveOk = isApiEnabled() && !!liveAlerts.data && !liveAlerts.isError;
+
+  const resolveLive = async (a: LiveAlert) => {
+    setResolvingId(a.id);
+    setLiveNote(null);
+    try {
+      await resolveAlert.mutateAsync({ id: a.id, status: "RESOLVED", reason: "reviewed-in-queue" });
+      setLiveNote(`Resolved live alert ${a.id.slice(0, 8)}… — audit trail appended.`);
+    } catch (e) {
+      setLiveNote(e instanceof Error ? e.message : "Live resolve failed.");
+    } finally {
+      setResolvingId(null);
+    }
+  };
+
+  const sevOf = (s?: string): MockAlert["severity"] =>
+    s === "HIGH" ? "high" : s === "MEDIUM" ? "medium" : "low";
+
   return (
     <div>
       <PageHeader eyebrow="Auditor console" title="Investigation Queue" sub="Sorted by risk score. Every row shows a badge plus one-line evidence." />
       <SignalBanner />
+      {liveOk && (
+        <Reveal className="mt-4">
+          <div className="rs-card overflow-x-auto">
+            <table className="rs-table min-w-[760px]">
+              <caption className="mono px-5 pt-4 text-left text-[11px] tracking-[0.12em]" style={{ color: "var(--text-muted)" }}>LIVE BACKEND ALERTS · {liveRows.length} OPEN</caption>
+              <thead><tr><th scope="col">Alert</th><th scope="col">Risk</th><th scope="col">Status</th><th scope="col"><span className="sr-only">Action</span></th></tr></thead>
+              <tbody>
+                {liveRows.map((a) => (
+                  <tr key={a.id}>
+                    <td><span className="text-[15px] font-semibold">{a.entityType ?? "Alert"} · {(a.entityId ?? a.id).slice(0, 18)}</span><p className="mono mt-1 text-xs" style={{ color: "var(--text-muted)" }}>{a.id}</p></td>
+                    <td><RiskBadge severity={sevOf(a.severity)} /><p className="kpi mono mt-1.5 text-xs" style={{ color: "var(--text-muted)" }}>{((a.riskScore ?? 0) / 100).toFixed(2)}</p></td>
+                    <td className="mono text-[12px]" style={{ color: "var(--text-secondary)" }}>{a.status ?? "OPEN"}</td>
+                    <td className="text-right"><button type="button" disabled={resolvingId === a.id} onClick={() => resolveLive(a)} className="rs-btn-secondary rs-btn-sm">{resolvingId === a.id ? "Resolving…" : "Resolve"}</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {liveRows.length === 0 && <p className="px-5 pb-4 text-sm" style={{ color: "var(--text-secondary)" }}>No live alerts match.</p>}
+          </div>
+        </Reveal>
+      )}
+      {liveNote && <p role="status" className="mt-3 text-[13px] font-bold" style={{ color: "var(--risk-low)" }}>{liveNote}</p>}
       <div className="mt-4 flex flex-wrap gap-2.5">
         <div className="rs-input flex max-w-md flex-1 items-center gap-2 !rounded-full !py-3">
           <SearchCheck size={16} aria-hidden style={{ color: "var(--text-muted)" }} />
@@ -111,6 +160,25 @@ export function FraudDetail() {
   const a = alerts.find((x) => x.id === id) ?? alerts[0];
   const [reason, setReason] = useState("");
   const [done, setDone] = useState<string | null>(null);
+  const [working, setWorking] = useState(false);
+  // Mock IDs look like ALT-1042; anything else is treated as a live backend UUID.
+  const isLiveId = !!id && !id.startsWith("ALT-");
+  const resolveMutation = useResolveAlert();
+  const decide = async (status: "RESOLVED" | "ESCALATED") => {
+    if (isLiveId && isApiEnabled() && id) {
+      setWorking(true);
+      try {
+        await resolveMutation.mutateAsync({ id, status, reason });
+        setDone(`${status === "RESOLVED" ? "Resolved" : "Escalated"} live alert as “${reason}”. Logged to hash-chained audit trail.`);
+      } catch (e) {
+        setDone(e instanceof Error ? `Live update failed: ${e.message}` : "Live update failed.");
+      } finally {
+        setWorking(false);
+      }
+      return;
+    }
+    setDone(`${status === "RESOLVED" ? "Resolved" : "Escalated"} as “${reason}”. Logged to hash-chained audit trail.`);
+  };
   return (
     <div>
       <PageHeader eyebrow={`${a.disaster} · ${a.date}`} title={`Alert ${a.id}`} sub="Full evidence bundle. Resolve or escalate requires a reason code." />
@@ -138,9 +206,10 @@ export function FraudDetail() {
               </select>
             </label>
             <div className="mt-3 flex gap-2.5">
-              <button type="button" disabled={!reason} className="rs-btn-primary rs-btn-sm flex-1" onClick={() => setDone(`Resolved as “${reason}”. Logged to hash-chained audit trail.`)}>Resolve</button>
-              <button type="button" disabled={!reason} className="rs-btn-secondary rs-btn-sm flex-1" onClick={() => setDone(`Escalated as “${reason}”. Added to command-centre watchlist.`)}>Escalate</button>
+              <button type="button" disabled={!reason || working} className="rs-btn-primary rs-btn-sm flex-1" onClick={() => decide("RESOLVED")}>{working ? "Saving…" : "Resolve"}</button>
+              <button type="button" disabled={!reason || working} className="rs-btn-secondary rs-btn-sm flex-1" onClick={() => decide("ESCALATED")}>{working ? "Saving…" : "Escalate"}</button>
             </div>
+            {isLiveId && isApiEnabled() && <p className="mono mt-2 text-[11px]" style={{ color: "var(--text-muted)" }}>LIVE ALERT · decisions write to the backend audit chain</p>}
             {!reason && <p className="mt-2 text-xs" style={{ color: "var(--text-muted)" }}>Choose a reason code to enable Resolve / Escalate.</p>}
             {done && <motion.p initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} role="status" className="mt-3 flex items-center gap-2 rounded-xl p-3 text-sm font-bold" style={{ color: "var(--risk-low)", background: "color-mix(in srgb, var(--risk-low) 9%, transparent)" }}><CheckCircle2 size={16} aria-hidden />{done}</motion.p>}
           </div>
@@ -171,19 +240,35 @@ export function Copilot() {
   const bottom = useRef<HTMLDivElement>(null);
   useEffect(() => { bottom.current?.scrollIntoView({ behavior: "smooth", block: "end" }); }, [msgs, busy]);
 
-  const ask = (q: string) => {
+  const ask = async (q: string) => {
     const text = q.trim();
     if (!text || busy) return;
     setBusy(true);
     const id = `m-${Date.now()}`;
     setMsgs((m) => [...m, { id, q: text, a: "", cites: [] }]);
     setInput("");
-    window.setTimeout(() => {
+    const canned = () => {
       setMsgs((m) => m.map((x) => x.id === id
         ? { ...x, a: "Ledger snapshot: 1 payee-account cluster needs review — •••• 4412 appears across 3 vendors with 2 duplicate-amount pairs. Recommend opening ALT-1042 before releasing PO-224.", cites: ["row:vendor_bank_4412", "ALT-1042", "row:vendor_9182"] }
         : x));
       setBusy(false);
-    }, 900);
+    };
+    if (!isAgentEnabled()) {
+      window.setTimeout(canned, 900);
+      return;
+    }
+    try {
+      const ans = await agent.aiQuery({ question: text });
+      const parsed = parseAgentAnswer(ans);
+      setMsgs((m) => m.map((x) => x.id === id ? { ...x, a: parsed.summary, cites: parsed.cites } : x));
+    } catch {
+      canned();
+      setMsgs((m) => m.map((x) => x.id === id
+        ? { ...x, a: `${x.a} (Live agent unreachable — synthetic fallback.)`, cites: [...x.cites, "fallback:synthetic"] }
+        : x));
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (

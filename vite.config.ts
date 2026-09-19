@@ -14,4 +14,11 @@ export default defineConfig({
       '@': path.resolve(dirname, './src'),
     },
   },
+  // Dev-only: proxy /api to the local backend (npm --prefix backend start on :3000).
+  // Ignored by `vite build` / `vite preview`, so Amplify output in dist/ is unchanged.
+  server: {
+    proxy: {
+      '/api': { target: 'http://localhost:3000', changeOrigin: true },
+    },
+  },
 })

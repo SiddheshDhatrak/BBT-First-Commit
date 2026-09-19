@@ -32,6 +32,11 @@ const NAV_BY_ROLE: Record<Role, { to: string; label: string; hint: string; icon:
     { to: "/vendor/invoices", label: "Submit Invoice", hint: "Upload", icon: FileWarning },
     { to: "/vendor/payments", label: "Payments", hint: "Settled", icon: HandCoins },
   ],
+  field: [
+    { to: "/app", label: "Field Home", hint: "Deliveries", icon: Home },
+    { to: "/dashboard", label: "Public Dashboard", hint: "Transparency", icon: LayoutDashboard },
+    { to: "/methodology", label: "Methodology", hint: "Trust", icon: ShieldCheck },
+  ],
   auditor: [
     { to: "/app", label: "Command Centre", hint: "Control room", icon: LayoutDashboard },
     { to: "/auditor/queue", label: "Investigation Queue", hint: "Review", icon: Scale },

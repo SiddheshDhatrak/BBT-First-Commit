@@ -58,6 +58,7 @@ function RoleHome() {
   if (role === "guest") return <Navigate to="/login" replace />;
   if (role === "ngo") return <NGO.OrgDashboard />;
   if (role === "vendor") return <MISC.VendorHome />;
+  if (role === "field") return <MISC.VendorHome />;
   if (role === "auditor") return <AUD.CommandCentre />;
   if (role === "admin") return <MISC.AdminUsers />;
   return <DonorHome />;

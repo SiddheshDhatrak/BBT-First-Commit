@@ -2,6 +2,8 @@ import { Link } from "react-router-dom";
 import { ArrowUpRight, BadgeCheck, HandCoins, Sparkles } from "lucide-react";
 import { ngos } from "@/lib/mock";
 import { formatINR } from "@/lib/format";
+import { isApiEnabled } from "@/lib/api";
+import { usePublicMetrics } from "@/lib/queries";
 import { PageHeader } from "@/components/composite/Chrome";
 import { TrustScoreRing } from "@/components/composite/Viz";
 import { CountUp } from "@/components/luxe/CountUp";
@@ -63,9 +65,20 @@ export function OrgProfile() {
 }
 
 export function DonorHome() {
+  const live = usePublicMetrics();
+  const liveOk = isApiEnabled() && !!live.data;
   return (
     <div>
       <PageHeader eyebrow="Donor" title="Welcome back" sub="Your giving at a glance — recent activity and one-tap giving." action={<Link to="/donate" className="rs-btn-primary rs-btn-sm"><HandCoins size={15} aria-hidden /> Donate now</Link>} />
+      {liveOk && live.data && (
+        <Reveal className="mb-4">
+          <div className="rs-inset flex flex-wrap items-center gap-x-6 gap-y-1.5 px-5 py-3 text-[13px]">
+            <span className="mono text-[10.5px] uppercase tracking-[0.12em]" style={{ color: "var(--text-muted)" }}>Live ledger · all donors</span>
+            <span><strong className="kpi">{formatINR(live.data.totalDonated)}</strong> <span style={{ color: "var(--text-secondary)" }}>across {live.data.donationCount} gifts</span></span>
+            <span><strong className="kpi">{live.data.deliveryVerifiedExpenses}</strong> <span style={{ color: "var(--text-secondary)" }}>deliveries verified</span></span>
+          </div>
+        </Reveal>
+      )}
       <div className="grid gap-4 lg:grid-cols-[1.3fr_.7fr]">
         <Reveal>
           <div className="rs-card p-6 md:p-8">
