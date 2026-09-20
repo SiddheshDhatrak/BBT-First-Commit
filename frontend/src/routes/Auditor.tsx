@@ -2,8 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence } from "motion/react";
 import { ArrowUpDown, CheckCircle2, Inbox, MapPin, SearchCheck, Sparkles } from "lucide-react";
-import { agent, isAgentEnabled } from "@/lib/api";
-import { parseAgentAnswer, useFraudAlerts, useGovernmentDashboard, usePublicMetrics, useResolveAlert, type LiveAlert } from "@/lib/queries";
+import { isApiEnabled } from "@/lib/api";
+import { useAgentAsk, useFraudAlerts, useGovernmentDashboard, usePublicMetrics, useResolveAlert, type LiveAlert } from "@/lib/queries";
 import { PageHeader } from "@/components/composite/Chrome";
 import { EvidenceCard, RiskBadge, SignalBanner } from "@/components/composite/Risk";
 import { Reveal, Stagger, StaggerItem } from "@/components/luxe/Reveal";
@@ -247,17 +247,36 @@ const SUGGESTED = [
 export function Copilot() {
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
+  const [expenseId, setExpenseId] = useState("");
   const [busy, setBusy] = useState(false);
   const bottom = useRef<HTMLDivElement>(null);
   const msgSeq = useRef(0);
+  const govQ = useGovernmentDashboard();
+  const askMutation = useAgentAsk();
+  const expenses = useMemo(
+    () => (((govQ.data as { expenses?: { expenseId: string }[] } | undefined)?.expenses) ?? []),
+    [govQ.data],
+  );
   useEffect(() => { bottom.current?.scrollIntoView({ behavior: "smooth", block: "end" }); }, [msgs, busy]);
+  const defaultedExpense = useRef(false);
+  useEffect(() => {
+    if (!defaultedExpense.current && !expenseId && expenses.length > 0 && expenses[0]) {
+      defaultedExpense.current = true;
+      setExpenseId(expenses[0].expenseId);
+    }
+  }, [expenses, expenseId]);
 
   const ask = async (q: string) => {
     const text = q.trim();
     if (!text || busy) return;
-    if (!isAgentEnabled()) {
+    if (!isApiEnabled()) {
       const id = `m-${++msgSeq.current}`;
-      setMsgs((m) => [...m, { id, q: text, a: "AI agent is not configured — set VITE_AGENT_URL to enable live analysis.", cites: [] }]);
+      setMsgs((m) => [...m, { id, q: text, a: "Backend is not configured — set VITE_API_URL to enable ledger-grounded analysis.", cites: [] }]);
+      return;
+    }
+    if (!expenseId) {
+      const id = `m-${++msgSeq.current}`;
+      setMsgs((m) => [...m, { id, q: text, a: "Pick an expense below first — analysis is scoped to one ledger expense and written to the audit chain.", cites: [] }]);
       return;
     }
     setBusy(true);
@@ -265,12 +284,11 @@ export function Copilot() {
     setMsgs((m) => [...m, { id, q: text, a: "", cites: [] }]);
     setInput("");
     try {
-      const ans = await agent.aiQuery({ question: text });
-      const parsed = parseAgentAnswer(ans);
+      const parsed = await askMutation.mutateAsync({ expenseId, question: text });
       setMsgs((m) => m.map((x) => x.id === id ? { ...x, a: parsed.summary, cites: parsed.cites } : x));
     } catch (e) {
       setMsgs((m) => m.map((x) => x.id === id
-        ? { ...x, a: e instanceof Error ? `Live agent query failed: ${e.message}` : "Live agent query failed.", cites: [] }
+        ? { ...x, a: e instanceof Error ? `Analysis failed: ${e.message}` : "Analysis failed.", cites: [] }
         : x));
     } finally {
       setBusy(false);
@@ -279,7 +297,24 @@ export function Copilot() {
 
   return (
     <div>
-      <PageHeader eyebrow="Auditor console" title="AI Auditor Copilot" sub="Live agent analysis — every sentence cites the rows it came from." />
+      <PageHeader eyebrow="Auditor console" title="AI Auditor Copilot" sub="Ledger-grounded analysis via the backend verification route — every query is audit-logged." />
+      <div className="mb-4 flex flex-wrap items-center gap-2.5" aria-label="Expense scope">
+        <label className="flex items-center gap-2 text-[13px] font-bold" style={{ color: "var(--text-secondary)" }}>
+          Expense
+          <select
+            value={expenseId}
+            onChange={(e) => setExpenseId(e.target.value)}
+            className="rs-input !w-auto !min-h-[40px] !rounded-full !py-2 text-[13px]"
+            aria-label="Select expense to analyze"
+          >
+            <option value="">Select expense…</option>
+            {expenses.map((e) => (
+              <option key={e.expenseId} value={e.expenseId}>{e.expenseId.slice(0, 12)}…</option>
+            ))}
+          </select>
+        </label>
+        {govQ.isPending && <span className="text-[12px]" style={{ color: "var(--text-muted)" }}>Loading expenses…</span>}
+      </div>
       <div className="mb-4 flex flex-wrap gap-2" aria-label="Suggested queries">
         {SUGGESTED.map((c) => <button key={c} type="button" onClick={() => ask(c)} className="rs-btn-secondary rs-btn-sm !rounded-full !font-semibold"><Sparkles size={13} aria-hidden style={{ color: "var(--accent-600)" }} /> {c}</button>)}
       </div>
@@ -289,7 +324,7 @@ export function Copilot() {
             <span className="flex h-9 w-9 items-center justify-center rounded-2xl text-white" style={{ background: "var(--primary-600)" }}><Sparkles size={17} aria-hidden /></span>
             <div>
               <p className="text-[14px] font-extrabold">Copilot · ledger-grounded</p>
-              <p className="mono text-[10.5px]" style={{ color: busy ? "var(--accent-600)" : "var(--risk-low)" }}>{busy ? "● REASONING OVER LEDGER…" : isAgentEnabled() ? "● LIVE AGENT" : "● AGENT NOT CONFIGURED"}</p>
+              <p className="mono text-[10.5px]" style={{ color: busy ? "var(--accent-600)" : "var(--risk-low)" }}>{busy ? "● REASONING OVER LEDGER…" : isApiEnabled() ? "● BACKEND-ROUTED · AUDITED" : "● BACKEND NOT CONFIGURED"}</p>
             </div>
           </div>
           <div className="flex-1 space-y-3 overflow-y-auto p-5" aria-live="polite">
