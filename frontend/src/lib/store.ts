@@ -5,8 +5,15 @@ export type Role = "donor" | "ngo" | "vendor" | "field" | "auditor" | "admin" | 
 export type Theme = "light" | "dark";
 
 export interface UserInfo {
+  id?: string;
   name: string;
   email: string;
+  role?: string;
+  organizationId?: string;
+  emailVerified?: boolean;
+  accessToken?: string;
+  refreshToken?: string;
+  idToken?: string;
 }
 
 interface UIState {
@@ -21,6 +28,10 @@ interface UIState {
   setMobileNav: (open: boolean) => void;
   theme: Theme;
   setTheme: (t: Theme) => void;
+  isAuthenticated: boolean;
+  setAuthenticated: (auth: boolean) => void;
+  loading: boolean;
+  setLoading: (loading: boolean) => void;
 }
 
 function initialTheme(): Theme {
@@ -41,18 +52,22 @@ export const useUI = create<UIState>()(
       role: "guest",
       setRole: (role) => set({ role }),
       user: null,
-      setUser: (user) => set({ user }),
-      signOut: () => set({ role: "guest", user: null, mobileNavOpen: false }),
+      setUser: (user) => set({ user, role: (user?.role?.toLowerCase() as any) || "guest", isAuthenticated: !!user }),
+      signOut: () => set({ role: "guest", user: null, mobileNavOpen: false, isAuthenticated: false }),
       sidebarOpen: true,
       toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
       mobileNavOpen: false,
       setMobileNav: (mobileNavOpen) => set({ mobileNavOpen }),
       theme: initialTheme(),
       setTheme: (theme) => set({ theme }),
+      isAuthenticated: false,
+      setAuthenticated: (isAuthenticated) => set({ isAuthenticated }),
+      loading: true,
+      setLoading: (loading) => set({ loading }),
     }),
     {
       name: "rahatsetu_ui",
-      partialize: (s) => ({ role: s.role, user: s.user, theme: s.theme, sidebarOpen: s.sidebarOpen }) as UIState,
+      partialize: (s) => ({ role: s.role, user: s.user, theme: s.theme, sidebarOpen: s.sidebarOpen, isAuthenticated: s.isAuthenticated }) as UIState,
     },
   ),
 );

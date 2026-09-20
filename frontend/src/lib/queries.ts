@@ -8,17 +8,22 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { agent, api, isAgentEnabled, isApiEnabled, type ActorClaims } from "@/lib/api";
 import { useUI } from "@/lib/store";
 
-/** Actor claims for the signed-in demo user. Picks up a Cognito access
- *  token from localStorage when present (future Hosted-UI login writes
- *  `rahatsetu_access_token`); otherwise header-claims demo mode. */
+/** Actor claims for the signed-in user. Uses real Cognito tokens when available. */
 export function useActorClaims(): ActorClaims {
   const role = useUI((s) => s.role);
   const user = useUI((s) => s.user);
-  let accessToken: string | undefined;
-  try {
-    accessToken = localStorage.getItem("rahatsetu_access_token") ?? undefined;
-  } catch { /* private mode */ }
-  return { role, actorId: user?.email ?? `${role}-demo`, accessToken };
+  const isAuthenticated = useUI((s) => s.isAuthenticated);
+  
+  if (!isAuthenticated || !user) {
+    return { role, actorId: `${role}-demo` };
+  }
+  
+  return { 
+    role, 
+    actorId: user.id ?? user.email ?? `${role}-demo`, 
+    accessToken: user.accessToken,
+    orgId: user.organizationId,
+  };
 }
 
 export interface PublicMetrics {
