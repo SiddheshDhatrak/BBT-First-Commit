@@ -2,8 +2,8 @@
 export const strings = {
   appName: "RahatSetu",
   tagline: "The bridge between a donated rupee and the receipt that proves where it went.",
-  syntheticBanner: "SYNTHETIC DEMO DATA — not real financial information.",
-  simulatedRail: "Simulated Transaction Rail",
+  liveBanner: "LIVE LEDGER DATA — verified backend records.",
+  ledgerRail: "Live Ledger Rail",
   signalBanner:
     "These are investigation signals, not proof. Every flag needs auditor review before action.",
   heroTitle: "Every donated rupee, traceable to its receipt.",

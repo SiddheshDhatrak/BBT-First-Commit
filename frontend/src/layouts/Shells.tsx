@@ -11,7 +11,8 @@ import { ConnectionDot } from "@/components/composite/ConnectionDot";
 import { Logo } from "@/components/brand/Logo";
 import { useLenis } from "@/components/luxe/useLenis";
 import { useUI, type Role } from "@/lib/store";
-import { alerts } from "@/lib/mock";
+import { clearSession } from "@/lib/cognito";
+import { useFraudAlerts, type LiveAlert } from "@/lib/queries";
 
 const NAV_BY_ROLE: Record<Role, { to: string; label: string; hint: string; icon: typeof Home }[]> = {
   donor: [
@@ -245,11 +246,15 @@ export function AppShell() {
   }, [toggleSidebar, setMobileNav]);
 
   const displayName = user?.name ?? role.charAt(0).toUpperCase() + role.slice(1);
-  const displayEmail = user?.email ?? `${role}@rahatsetu.demo`;
+  const displayEmail = user?.email ?? "Not signed in";
   const initial = (displayName.trim().charAt(0) || role.charAt(0)).toUpperCase();
+  const govt = role === "auditor" || role === "admin";
+  const alertsQ = useFraudAlerts();
+  const alerts: LiveAlert[] = govt ? ((alertsQ.data ?? []) as LiveAlert[]) : [];
   const badgeCount = alerts.length > 9 ? "9+" : String(alerts.length);
 
   const handleSignOut = () => {
+    try { clearSession(); } catch { /* noop */ }
     signOut();
     setBell(false);
     setMobileNav(false);
@@ -485,11 +490,16 @@ export function AppShell() {
                       className="glass absolute right-0 z-50 mt-2 w-80 overflow-hidden rounded-2xl p-2 text-sm"
                       role="menu" aria-label="Notifications"
                     >
-                      <p className="eyebrow px-3 pb-1 pt-2">Signals · {alerts.length} unread</p>
-                      {alerts.map((a) => (
+                      <p className="eyebrow px-3 pb-1 pt-2">Signals · {alerts.length} open</p>
+                      {alerts.length === 0 && (
+                        <p className="px-3 py-2 text-[13px]" style={{ color: "var(--text-muted)" }}>
+                          {govt ? "No open signals on the live ledger." : "Signal detail is auditor-only."}
+                        </p>
+                      )}
+                      {alerts.slice(0, 6).map((a) => (
                         <Link key={a.id} to={`/auditor/alerts/${a.id}`} onClick={() => setBell(false)} className="block rounded-xl px-3 py-2.5 transition-colors hover:bg-[var(--bg-surface-alt)]">
-                          <span className="mono text-[11px] font-bold" style={{ color: "var(--primary-600)" }}>{a.id}</span>
-                          <span className="block text-[13px] font-semibold leading-snug" style={{ color: "var(--text-primary)" }}>{a.title.slice(0, 70)}…</span>
+                          <span className="mono text-[11px] font-bold" style={{ color: "var(--primary-600)" }}>{a.id.slice(0, 12)}…</span>
+                          <span className="block text-[13px] font-semibold leading-snug" style={{ color: "var(--text-primary)" }}>{(a.entityType ?? "Signal")} · {(a.status ?? "OPEN")}</span>
                         </Link>
                       ))}
                     </motion.div>

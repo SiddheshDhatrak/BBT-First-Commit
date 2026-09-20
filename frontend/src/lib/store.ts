@@ -14,6 +14,8 @@ interface UIState {
   setRole: (r: Role) => void;
   user: UserInfo | null;
   setUser: (u: UserInfo | null) => void;
+  orgId: string | null;
+  setOrgId: (id: string | null) => void;
   signOut: () => void;
   sidebarOpen: boolean;
   toggleSidebar: () => void;
@@ -42,7 +44,9 @@ export const useUI = create<UIState>()(
       setRole: (role) => set({ role }),
       user: null,
       setUser: (user) => set({ user }),
-      signOut: () => set({ role: "guest", user: null, mobileNavOpen: false }),
+      orgId: null,
+      setOrgId: (orgId) => set({ orgId }),
+      signOut: () => set({ role: "guest", user: null, orgId: null, mobileNavOpen: false }),
       sidebarOpen: true,
       toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
       mobileNavOpen: false,
@@ -52,7 +56,7 @@ export const useUI = create<UIState>()(
     }),
     {
       name: "rahatsetu_ui",
-      partialize: (s) => ({ role: s.role, user: s.user, theme: s.theme, sidebarOpen: s.sidebarOpen }) as UIState,
+      partialize: (s) => ({ role: s.role, user: s.user, orgId: s.orgId, theme: s.theme, sidebarOpen: s.sidebarOpen }) as UIState,
     },
   ),
 );
