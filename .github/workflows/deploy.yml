@@ -143,7 +143,7 @@ jobs:
     needs: deploy-backend
     runs-on: ubuntu-latest
     environment: production
-    if: ${{ secrets.AMPLIFY_APP_ID }}
+    if: ${{ env.AMPLIFY_APP_ID }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
