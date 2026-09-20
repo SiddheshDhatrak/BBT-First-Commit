@@ -14,8 +14,6 @@ env:
   ECR_REGISTRY: ${{ secrets.ECR_REGISTRY }}
   ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
   APP_RUNNER_SERVICE_ARN: ${{ secrets.APP_RUNNER_SERVICE_ARN }}
-  AMPLIFY_APP_ID: ${{ secrets.AMPLIFY_APP_ID }}
-  AMPLIFY_BRANCH: main
 
 jobs:
   # Build and push backend Docker image
@@ -138,91 +136,9 @@ jobs:
           
           curl -f "https://$SERVICE_URL/api/v1/ready"
 
-  # Build and deploy frontend to Amplify (runs always, skips deploy if AMPLIFY_APP_ID not set)
-  deploy-frontend:
-    needs: deploy-backend
-    runs-on: ubuntu-latest
-    environment: production
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          sparse-checkout-cone-mode: false
-          sparse-checkout: ''
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: Configure AWS Credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Get Backend URL for Frontend Build
-        id: backend-url
-        run: |
-          SERVICE_URL=$(aws apprunner describe-service --service-arn ${{ secrets.APP_RUNNER_SERVICE_ARN }} --region ${{ env.AWS_REGION }} --query 'Service.ServiceUrl' --output text)
-          echo "BACKEND_URL=https://$SERVICE_URL/api/v1" >> $GITHUB_OUTPUT
-
-      - name: Install Frontend Dependencies
-        working-directory: ./frontend
-        run: npm ci
-
-      - name: Build Frontend
-        working-directory: ./frontend
-        env:
-          VITE_API_URL: ${{ steps.backend-url.outputs.BACKEND_URL }}
-        run: npm run build
-
-      - name: Deploy to Amplify
-        if: env.AMPLIFY_APP_ID != ''
-        run: |
-          echo "Starting Amplify deployment..."
-          DEPLOYMENT=$(aws amplify start-deployment \
-            --app-id ${{ secrets.AMPLIFY_APP_ID }} \
-            --branch-name ${{ env.AMPLIFY_BRANCH }} \
-            --region ${{ env.AWS_REGION }} \
-            --output json)
-          
-          JOB_ID=$(echo $DEPLOYMENT | jq -r '.jobSummary.jobId')
-          echo "Amplify deployment started: $JOB_ID"
-          
-          # Wait for deployment
-          for i in {1..40}; do
-            STATUS=$(aws amplify get-job --app-id ${{ secrets.AMPLIFY_APP_ID }} --branch-name ${{ env.AMPLIFY_BRANCH }} --job-id $JOB_ID --region ${{ env.AWS_REGION }} --query 'job.summary.status' --output text)
-            echo "Attempt $i/40: Amplify status = $STATUS"
-            if [ "$STATUS" = "SUCCEED" ]; then
-              echo "Frontend deployed successfully"
-              break
-            fi
-            if [ "$STATUS" = "FAILED" ]; then
-              echo "Amplify deployment failed"
-              exit 1
-            fi
-            sleep 15
-          done
-          
-          if [ "$STATUS" != "SUCCEED" ]; then
-            echo "Amplify deployment timed out"
-            exit 1
-          fi
-
-      - name: Get Amplify URL
-        if: env.AMPLIFY_APP_ID != ''
-        run: |
-          APP_URL=$(aws amplify get-app --app-id ${{ secrets.AMPLIFY_APP_ID }} --region ${{ env.AWS_REGION }} --query 'app.defaultDomain' --output text)
-          BRANCH_URL=$(aws amplify get-branch --app-id ${{ secrets.AMPLIFY_APP_ID }} --branch-name ${{ env.AMPLIFY_BRANCH }} --region ${{ env.AWS_REGION }} --query 'branch.displayName' --output text)
-          echo "Frontend URL: https://$BRANCH_URL.$APP_URL"
-
   # Final verification
   verify:
-    needs: [deploy-backend, deploy-frontend]
+    needs: deploy-backend
     if: ${{ always() && needs.deploy-backend.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
@@ -239,9 +155,6 @@ jobs:
           curl -f "https://$SERVICE_URL/api/v1/health"
           curl -f "https://$SERVICE_URL/api/v1/ready"
       
-      - name: Verify Frontend
-        if: env.AMPLIFY_APP_ID != ''
+      - name: Verify Frontend (friend's Amplify)
         run: |
-          APP_URL=$(aws amplify get-app --app-id ${{ secrets.AMPLIFY_APP_ID }} --region ${{ env.AWS_REGION }} --query 'app.defaultDomain' --output text)
-          BRANCH_URL=$(aws amplify get-branch --app-id ${{ secrets.AMPLIFY_APP_ID }} --branch-name ${{ env.AMPLIFY_BRANCH }} --region ${{ env.AWS_REGION }} --query 'branch.displayName' --output text)
-          echo "✅ Frontend: https://$BRANCH_URL.$APP_URL"
+          echo "✅ Frontend: https://main.d1k8mhrhrbsai2.amplifyapp.com (deployed by friend's Amplify on push)"
