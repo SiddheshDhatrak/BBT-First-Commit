@@ -537,7 +537,7 @@ function createAuthService(config = loadConfig(), repo = null) {
 
   async function listUsers(filters = {}) {
     if (!isConfigured) {
-      const users = Array.from(MOCK_USERS.values());
+      const users = Array.from(MOCK_USERS.values()).map(({ password: _password, ...safe }) => safe);
       return { users: users.slice(0, filters.limit || 50), nextToken: null };
     }
 
@@ -552,12 +552,13 @@ function createAuthService(config = loadConfig(), repo = null) {
 
     const result = await cognitoClient.send(new ListUsersCommand(listParams));
 
-    const users = result.Users.map(user => {
+    const users = [];
+    for (const user of result.Users) {
       const attributes = {};
       user.Attributes.forEach(attr => {
         attributes[attr.Name] = attr.Value;
       });
-      return {
+      const record = {
         id: user.Username,
         email: attributes.email,
         name: attributes.name,
@@ -568,17 +569,25 @@ function createAuthService(config = loadConfig(), repo = null) {
         createdAt: user.UserCreateDate,
         lastModified: user.UserLastModifiedDate,
       };
-    });
+      const groups = await resolveGroups(user.Username).catch(() => null);
+      users.push(applyPending(record, groups));
+    }
 
     return { users, nextToken: result.PaginationToken };
   }
 
   async function assignRole(userId, role, actor) {
+    const normalized = String(role || '').toUpperCase();
+    if (!ROLE_GROUP_MAP[normalized]) {
+      throw badRequest('Invalid role');
+    }
     if (!isConfigured) {
       for (const user of MOCK_USERS.values()) {
         if (user.id === userId || user.email === userId) {
-          user.role = role;
-          return user;
+          user.role = normalized;
+          delete user.requestedRole;
+          const { password: _password, ...safe } = user;
+          return safe;
         }
       }
       throw notFound('User not found');
@@ -588,7 +597,7 @@ function createAuthService(config = loadConfig(), repo = null) {
       throw unauthorized('Only government users can assign roles');
     }
 
-    const groupName = ROLE_GROUP_MAP[role];
+    const groupName = ROLE_GROUP_MAP[normalized];
     if (!groupName) {
       throw badRequest('Invalid role');
     }
@@ -602,7 +611,7 @@ function createAuthService(config = loadConfig(), repo = null) {
     await cognitoClient.send(new AdminUpdateUserAttributesCommand({
       UserPoolId: userPoolId,
       Username: userId,
-      UserAttributes: [{ Name: 'custom:role', Value: role }],
+      UserAttributes: [{ Name: 'custom:role', Value: normalized }],
     }));
 
     return getUserById(userId);

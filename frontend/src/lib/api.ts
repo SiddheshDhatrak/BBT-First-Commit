@@ -243,4 +243,12 @@ export const api = {
 
   ghostDelivery: <T,>(claims: ActorClaims): Promise<T> =>
     request(`/demo/ghost-delivery`, claims, { method: "POST", body: "{}" }),
+
+  // User management (GOVT): approval queue, role assignment, removal
+  listUsers: <T,>(claims: ActorClaims): Promise<T> =>
+    request(`/auth/users`, claims),
+  assignRole: <T,>(userId: string, role: string, claims: ActorClaims): Promise<T> =>
+    request(`/auth/assign-role`, claims, { method: "POST", body: JSON.stringify({ userId, role }) }),
+  deleteUser: <T,>(userId: string, claims: ActorClaims): Promise<T> =>
+    request(`/auth/users/${encodeURIComponent(userId)}`, claims, { method: "DELETE" }),
 };

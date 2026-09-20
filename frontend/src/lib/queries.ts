@@ -275,3 +275,45 @@ export function useAgentAsk() {
     },
   });
 }
+
+export interface ManagedUser {
+  id: string;
+  email: string;
+  name: string;
+  role: string;
+  requestedRole?: string;
+  organizationId?: string | null;
+  status?: string;
+  createdAt?: string;
+}
+
+/** GOVT-only: full user list; PENDING entries form the approval queue. */
+export function useUsers() {
+  const claims = useActorClaims();
+  const admin = claims.role === "admin";
+  return useQuery({
+    queryKey: ["live", "users"],
+    queryFn: () => api.listUsers<{ users: ManagedUser[] }>(claims),
+    enabled: isApiEnabled() && admin && signedIn(),
+    ...LIVE,
+  });
+}
+
+export function useAssignRole() {
+  const claims = useActorClaims();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ userId, role }: { userId: string; role: string }) =>
+      api.assignRole<unknown>(userId, role, claims),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["live", "users"] }),
+  });
+}
+
+export function useDeleteUser() {
+  const claims = useActorClaims();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (userId: string) => api.deleteUser<unknown>(userId, claims),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["live", "users"] }),
+  });
+}

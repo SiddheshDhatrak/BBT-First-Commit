@@ -7,7 +7,7 @@ import { OrgProfile, DonorHome } from "@/routes/Dashboard";
 import { DonateFlow, MyDonations, LineageDetail } from "@/routes/Donor";
 import { Login, Register, Pending } from "@/routes/Auth";
 import { useUI, type Role } from "@/lib/store";
-import { auth } from "@/lib/auth";
+import { auth, toFrontendRole } from "@/lib/auth";
 import { isApiEnabled } from "@/lib/api";
 
 function AuthBootstrap() {
@@ -22,7 +22,7 @@ function AuthBootstrap() {
           setUser({
             name: me.name,
             email: me.email,
-            role: me.role,
+            role: toFrontendRole(me.role, me.email),
             organizationId: me.organizationId,
             accessToken: me.accessToken,
             refreshToken: me.refreshToken,

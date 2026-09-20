@@ -10,6 +10,28 @@ export const isBackendAuthConfigured = () => BASE.length > 0;
 /** Historic name kept for existing imports: true only when the real backend is wired. */
 export const isAmplifyConfigured = isBackendAuthConfigured();
 
+const ADMIN_EMAILS = ((import.meta.env.VITE_ADMIN_EMAILS as string | undefined) ?? "")
+  .split(",")
+  .map((s) => s.trim().toLowerCase())
+  .filter(Boolean);
+
+/**
+ * Backend role → frontend console role. GOVT splits by allowlist:
+ * listed emails become admin (approval queue + rules), everyone else
+ * becomes auditor (investigations only). Unknown roles fall to guest so
+ * RequireRole guards fail closed instead of rendering the wrong console.
+ */
+export function toFrontendRole(backendRole: string, email?: string): string {
+  const r = (backendRole || "").toUpperCase();
+  if (r === "GOVT") {
+    return email && ADMIN_EMAILS.includes(email.toLowerCase()) ? "admin" : "auditor";
+  }
+  if (["DONOR", "NGO", "VENDOR", "FIELD", "AUDITOR", "ADMIN", "PENDING"].includes(r)) {
+    return r.toLowerCase();
+  }
+  return "guest";
+}
+
 export type BackendRole = "DONOR" | "NGO" | "VENDOR" | "FIELD" | "GOVT";
 
 export interface AuthUser {

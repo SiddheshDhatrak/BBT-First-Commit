@@ -6,7 +6,7 @@ import { useUI } from "@/lib/store";
 import { PageHeader } from "@/components/composite/Chrome";
 import { StatusTimeline } from "@/components/composite/Viz";
 import { Reveal } from "@/components/luxe/Reveal";
-import { auth, isAmplifyConfigured } from "@/lib/auth";
+import { auth, isAmplifyConfigured, toFrontendRole } from "@/lib/auth";
 
 export function Login() {
   const { setRole, setUser, setTheme } = useUI();
@@ -37,7 +37,7 @@ export function Login() {
     try {
       const cleanEmail = email.trim();
       const result = await auth.signIn(cleanEmail, password, role);
-      const frontendRole = result.user.role.toLowerCase();
+      const frontendRole = toFrontendRole(result.user.role, result.user.email);
       setUser({ name: result.user.name, email: result.user.email, role: result.user.role, organizationId: result.user.organizationId || undefined, accessToken: result.accessToken, refreshToken: result.refreshToken, idToken: result.idToken });
       setRole(frontendRole as any);
       applyRoleTheme(frontendRole);
