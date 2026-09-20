@@ -19,6 +19,7 @@ const { loadConfig } = require('./core/config');
 const { requestLogger, errorLogger } = require('./core/logging');
 const {
   validate,
+  withValidation,
   disasterSchema,
   campaignSchema,
   donationSchema,
@@ -130,14 +131,26 @@ function createApp({ repository, config } = {}) {
     });
 
   const router = { add: route };
-  const withRole = (allowed, handler) => async ctx => {
+  // Composes [validate(...) steps..., finalHandler]. validate() steps resolve
+  // to {__validated} markers whose parsed payload replaces ctx[source] for
+  // downstream steps; the final handler's {status, body} envelope is returned.
+  const withRole = (allowed, ...chain) => async ctx => {
     const actor = await actorFromRequest(ctx.req, cfg);
     if (!cfg.FEATURE_DEMO_ROLE_HEADERS && cfg.NODE_ENV === 'production') {
       const { forbidden } = require('./core/errors');
       throw forbidden('Demo role headers are disabled in production');
     }
     requireRole(actor, allowed);
-    return handler({ ...ctx, actor });
+    let scoped = { ...ctx, actor };
+    for (const step of chain) {
+      const out = await step(scoped);
+      if (out && typeof out === 'object' && out.__validated) {
+        scoped = { ...scoped, [out.__validated.source]: out.__validated.data };
+        continue;
+      }
+      return out;
+    }
+    return undefined;
   };
 
   router.add('GET', '/api/v1/health', async (ctx) => {
@@ -385,11 +398,10 @@ function createApp({ repository, config } = {}) {
   router.add(
     'POST',
     '/api/v1/distributions/:id/confirm',
-    validate(confirmSchema, 'body'),
-    async ({ params, body }) => ({
+    withValidation(confirmSchema, 'body', async ({ params, body }) => ({
       status: 201,
       body: delivery.confirmDistribution(params.id, body),
-    })
+    }))
   );
   router.add(
     'GET',

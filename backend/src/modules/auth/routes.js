@@ -1,41 +1,41 @@
-const { validate } = require('../../core/validation');
+const { withValidation } = require('../../core/validation');
 const { registerSchema, loginSchema, verifyEmailSchema, forgotPasswordSchema, resetPasswordSchema, refreshTokenSchema, resendVerificationSchema } = require('./validation');
 
 function createAuthRoutes(router, auth) {
-  router.add('POST', '/api/v1/auth/register', validate(registerSchema, 'body'), async ({ body, actor }) => {
+  router.add('POST', '/api/v1/auth/register', withValidation(registerSchema, 'body', async ({ body, actor }) => {
     const result = await auth.registerUser(body, actor);
     return { status: 201, body: result };
-  });
+  }));
 
-  router.add('POST', '/api/v1/auth/login', validate(loginSchema, 'body'), async ({ body }) => {
+  router.add('POST', '/api/v1/auth/login', withValidation(loginSchema, 'body', async ({ body }) => {
     const result = await auth.loginUser(body);
     return { body: result };
-  });
+  }));
 
-  router.add('POST', '/api/v1/auth/verify-email', validate(verifyEmailSchema, 'body'), async ({ body }) => {
+  router.add('POST', '/api/v1/auth/verify-email', withValidation(verifyEmailSchema, 'body', async ({ body }) => {
     const result = await auth.verifyEmail(body);
     return { body: result };
-  });
+  }));
 
-  router.add('POST', '/api/v1/auth/resend-verification', validate(resendVerificationSchema, 'body'), async ({ body }) => {
+  router.add('POST', '/api/v1/auth/resend-verification', withValidation(resendVerificationSchema, 'body', async ({ body }) => {
     const result = await auth.resendVerification(body);
     return { body: result };
-  });
+  }));
 
-  router.add('POST', '/api/v1/auth/forgot-password', validate(forgotPasswordSchema, 'body'), async ({ body }) => {
+  router.add('POST', '/api/v1/auth/forgot-password', withValidation(forgotPasswordSchema, 'body', async ({ body }) => {
     const result = await auth.forgotPassword(body);
     return { body: result };
-  });
+  }));
 
-  router.add('POST', '/api/v1/auth/reset-password', validate(resetPasswordSchema, 'body'), async ({ body }) => {
+  router.add('POST', '/api/v1/auth/reset-password', withValidation(resetPasswordSchema, 'body', async ({ body }) => {
     const result = await auth.resetPassword(body);
     return { body: result };
-  });
+  }));
 
-  router.add('POST', '/api/v1/auth/refresh', validate(refreshTokenSchema, 'body'), async ({ body }) => {
+  router.add('POST', '/api/v1/auth/refresh', withValidation(refreshTokenSchema, 'body', async ({ body }) => {
     const result = await auth.refreshToken(body);
     return { body: result };
-  });
+  }));
 
   router.add('POST', '/api/v1/auth/logout', async ({ req }) => {
     const accessToken = req.headers['authorization']?.replace('Bearer ', '');

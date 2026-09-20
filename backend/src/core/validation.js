@@ -2,14 +2,31 @@ const { z } = require('zod');
 const { badRequest } = require('./errors');
 
 function validate(schema, source) {
-  return ctx => {
+  // Pipeline step for withRole(): validates ctx[source] and resolves to a
+  // marker carrying the parsed payload. withRole() unwraps the marker so the
+  // next step in the chain sees validated data. Never mount this directly as
+  // a route handler — use withValidation() for single-handler routes.
+  return async ctx => {
     const data = ctx[source];
     const result = schema.safeParse(data);
     if (!result.success) {
       const details = result.error.flatten();
       throw badRequest(`Invalid ${source}`, details);
     }
-    return result.data;
+    return { __validated: { source, data: result.data } };
+  };
+}
+
+// Single-handler composition for routers that accept one handler fn
+// (e.g. backend/src/modules/auth/routes.js).
+function withValidation(schema, source, handler) {
+  return async ctx => {
+    const result = schema.safeParse(ctx[source]);
+    if (!result.success) {
+      const details = result.error.flatten();
+      throw badRequest(`Invalid ${source}`, details);
+    }
+    return handler({ ...ctx, [source]: result.data });
   };
 }
 
@@ -212,6 +229,7 @@ const s3SignedUrlSchema = z.object({
 
 module.exports = {
   validate,
+  withValidation,
   commonSchemas,
   disasterSchema,
   campaignSchema,
