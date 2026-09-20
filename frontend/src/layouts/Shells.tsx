@@ -125,6 +125,7 @@ export function PublicShell() {
             {role === "guest" ? (
               <>
                 <button type="button" onClick={() => nav("/login")} className="rs-btn-secondary rs-btn-sm hidden sm:inline-flex">Login</button>
+                <button type="button" onClick={() => nav("/register")} className="rs-btn-secondary rs-btn-sm hidden sm:inline-flex">Sign up</button>
                 <button type="button" onClick={() => nav("/donate")} className="rs-btn-accent rs-btn-sm">Donate <ArrowUpRight size={14} aria-hidden /></button>
               </>
             ) : (
@@ -169,7 +170,7 @@ export function PublicShell() {
               </div>
               <nav aria-label="Mobile" className="space-y-1">
                 {(role === "guest"
-                  ? [["/", "Home"], ["/dashboard", "Public Dashboard"], ["/methodology", "Methodology"], ["/donate", "Donate"], ["/donations", "My Donations"], ["/login", "Login"]]
+                  ? [["/", "Home"], ["/dashboard", "Public Dashboard"], ["/methodology", "Methodology"], ["/donate", "Donate"], ["/donations", "My Donations"], ["/login", "Login"], ["/register", "Create account"]]
                   : [["/", "Home"], ["/dashboard", "Public Dashboard"], ["/app", "Open console"], ["/donate", "Donate"], ["/donations", "My Donations"]]
                 ).map(([to, label]) => (
                   <NavLink key={to} to={to} className="rs-navlink !py-3 !text-[15px]" onClick={() => setOpen(false)}>{label}</NavLink>
