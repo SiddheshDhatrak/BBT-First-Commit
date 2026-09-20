@@ -1,0 +1,100 @@
+# Local full-stack wiring (dev only).
+# Managed Postgres is used for E2E (see backend/.env DATABASE_URL) — the local
+# postgres service below is optional and OFF by default (profile: local-pg).
+#
+# Full 4-service run:
+#   1) Fill backend/.env (managed Postgres URL + Cognito) and root .env (Vite URLs + Cognito)
+#   2) docker compose -f docker-compose.override.yml up --build
+# Ports: backend :3000 (node), ml-service :8001, ai-agent :8002, frontend :5173 (vite).
+
+services:
+  backend:
+    build: ./backend
+    container_name: rahatsetu-backend
+    ports:
+      - "3000:3000"
+    env_file:
+      - ./backend/.env
+    environment:
+      PORT: "3000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://localhost:3000/api/v1/health', (res) => { if (res.statusCode !== 200) process.exit(1); }).on('error', () => process.exit(1))\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  postgres-local:
+    image: postgres:16-alpine
+    container_name: rahatsetu-postgres-local
+    profiles: ["local-pg"]
+    environment:
+      POSTGRES_DB: rahatsetu
+      POSTGRES_USER: rahatsetu
+      POSTGRES_PASSWORD: rahatsetu
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata-local:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  ml-service:
+    build: ./ml-service
+    container_name: rahatsetu-ml
+    ports:
+      - "8001:8001"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8001/api/v1/health')\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  ai-agent:
+    build: ./ai-agent
+    container_name: rahatsetu-agent
+    ports:
+      - "8002:8002"
+    environment:
+      AI_PROVIDER: mock
+      ML_PROVIDER: mock
+      ML_SERVICE_URL: http://ml-service:8001
+      BACKEND_URL: http://backend:3000
+      AGENT_PORT: 8002
+    depends_on:
+      backend:
+        condition: service_healthy
+      ml-service:
+        condition: service_started
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8002/api/v1/health')\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  frontend:
+    image: node:22-alpine
+    container_name: rahatsetu-frontend
+    working_dir: /app
+    command: ["sh", "-c", "npm ci && npm run dev -- --host 0.0.0.0 --port 5173"]
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/dist
+    environment:
+      VITE_API_URL: http://localhost:3000/api/v1
+      VITE_AGENT_URL: http://localhost:8002/api/v1
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata-local:
+    name: rahatsetu-pgdata-local
