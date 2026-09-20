@@ -1,7 +1,6 @@
 import { Link } from "react-router-dom";
 import { motion } from "motion/react";
 import { ArrowRight, ArrowUpRight, BadgeCheck, TrendingUp, Landmark, FileCheck2, Eye } from "lucide-react";
-import { disasters } from "@/lib/mock";
 import { formatINR, formatNumber } from "@/lib/format";
 import { strings } from "@/lib/strings";
 import { PageHeader } from "@/components/composite/Chrome";
@@ -10,6 +9,7 @@ import { Reveal, Stagger, StaggerItem } from "@/components/luxe/Reveal";
 import { TrustTicker } from "@/components/luxe/TrustTicker";
 import { ScrollStage } from "@/components/luxe/ScrollStage";
 import { TiltCard } from "@/components/viz/Depth";
+import { usePublicMetrics } from "@/lib/queries";
 
 export function shortINR(v: number): string {
   if (v >= 10000000) return `₹${(v / 10000000).toFixed(2)} Cr`;
@@ -21,9 +21,10 @@ export function shortINR(v: number): string {
 const EASE = [0.22, 1, 0.36, 1] as const;
 
 export function Landing() {
-  const total = disasters.reduce((a, d) => a + d.collected, 0);
-  const ngoCount = disasters.reduce((a, d) => a + d.ngos, 0);
-  const resolved = disasters.reduce((a, d) => a + d.alertsResolved, 0);
+  const live = usePublicMetrics();
+  const m = live.data;
+  const total = m?.totalDonated ?? 0;
+  const campaigns = m?.utilizationByCampaign ?? [];
   return (
     <div>
       {/* ——— Professional hero ——— */}
@@ -76,7 +77,7 @@ export function Landing() {
               className="mono mt-5 text-[10.5px] tracking-[0.18em]"
               style={{ color: "var(--text-muted)" }}
             >
-              SYNTHETIC DEMO DATA · {strings.simulatedRail.toUpperCase()}
+              LIVE LEDGER DATA
             </motion.p>
             <motion.div
               initial={{ opacity: 0 }}
@@ -99,24 +100,32 @@ export function Landing() {
             transition={{ duration: 0.65, delay: 0.2, ease: EASE }}
           >
             <TiltCard>
-              <div className="glass rounded-3xl p-6 md:p-7" aria-label="Live totals">
-                <p className="text-[11px] font-extrabold uppercase tracking-[0.14em]" style={{ color: "var(--text-muted)" }}>Live · tracked across {disasters.length} disasters</p>
-                <p className="kpi mt-2 text-[44px] font-extrabold leading-none md:text-[52px]">
-                  <CountUp to={total} format={(v) => shortINR(v)} />
-                </p>
-                <p className="mono mt-1 text-[11px]" style={{ color: "var(--text-muted)" }}>exact {formatINR(total)} · reconciled nightly</p>
-                <dl className="mt-5 space-y-3">
-                  {[
-                    ["NGOs onboarded", formatNumber(ngoCount)],
-                    ["Alerts resolved with evidence", formatNumber(resolved)],
-                    ["Receipt coverage", "94%"],
-                  ].map(([k, v]) => (
-                    <div key={k as string} className="flex items-center justify-between border-t pt-3 text-sm" style={{ borderColor: "var(--border-subtle)" }}>
-                      <dt style={{ color: "var(--text-secondary)" }}>{k as string}</dt>
-                      <dd className="kpi text-[17px] font-extrabold">{v as string}</dd>
-                    </div>
-                  ))}
-                </dl>
+              <div className="glass rounded-3xl p-6 md:p-7" aria-label="Live totals" aria-busy={live.isPending}>
+                <p className="text-[11px] font-extrabold uppercase tracking-[0.14em]" style={{ color: "var(--text-muted)" }}>Live · tracked across {campaigns.length} campaigns</p>
+                {live.isPending ? (
+                  <p className="kpi mt-2 text-[24px] font-extrabold" style={{ color: "var(--text-muted)" }}>Loading live ledger…</p>
+                ) : live.isError || !m ? (
+                  <p className="mt-2 text-[15px] font-bold" style={{ color: "var(--risk-high)" }} role="alert">Live ledger unreachable. Check backend connection.</p>
+                ) : (
+                  <>
+                    <p className="kpi mt-2 text-[44px] font-extrabold leading-none md:text-[52px]">
+                      <CountUp to={total} format={(v) => shortINR(v)} />
+                    </p>
+                    <p className="mono mt-1 text-[11px]" style={{ color: "var(--text-muted)" }}>exact {formatINR(total)} · reconciled nightly</p>
+                    <dl className="mt-5 space-y-3">
+                      {[
+                        ["Gifts tracked", formatNumber(m.donationCount)],
+                        ["Deliveries verified", formatNumber(m.deliveryVerifiedExpenses)],
+                        ["Expenses in ledger", formatNumber(m.expenseCount)],
+                      ].map(([k, v]) => (
+                        <div key={k as string} className="flex items-center justify-between border-t pt-3 text-sm" style={{ borderColor: "var(--border-subtle)" }}>
+                          <dt style={{ color: "var(--text-secondary)" }}>{k as string}</dt>
+                          <dd className="kpi text-[17px] font-extrabold">{v as string}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </>
+                )}
                 <p className="mt-4 flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-bold" style={{ background: "color-mix(in srgb, var(--risk-low) 10%, transparent)", color: "var(--risk-low)" }}>
                   <TrendingUp size={14} aria-hidden /> Utilisation updated daily from the ledger
                 </p>
@@ -126,12 +135,18 @@ export function Landing() {
         </div>
 
         <div className="relative mt-8 flex flex-wrap items-center gap-x-8 gap-y-2 border-t px-1 pt-4 text-[12.5px] font-semibold" style={{ borderColor: "var(--border-subtle)", color: "var(--text-secondary)" }}>
-          {disasters.map((d) => (
-            <span key={d.id} className="inline-flex items-center gap-2">
-              <span className="h-1.5 w-1.5 rounded-full" style={{ background: "var(--primary-600)" }} aria-hidden />
-              {d.name} · <span className="kpi">{shortINR(d.collected)}</span>
-            </span>
-          ))}
+          {live.isPending ? (
+            <span>Loading campaigns…</span>
+          ) : live.isError || campaigns.length === 0 ? (
+            <span>No campaigns yet — be the first to fund one.</span>
+          ) : (
+            campaigns.slice(0, 6).map((c) => (
+              <span key={c.campaignId} className="inline-flex items-center gap-2">
+                <span className="h-1.5 w-1.5 rounded-full" style={{ background: "var(--primary-600)" }} aria-hidden />
+                {c.name} · <span className="kpi">{shortINR(c.donated)}</span>
+              </span>
+            ))
+          )}
         </div>
       </section>
 
@@ -144,28 +159,36 @@ export function Landing() {
 
       {/* ——— Impact band ——— */}
       <Reveal className="mt-12">
-        <section className="rs-card overflow-hidden" aria-label="Impact by disaster">
+        <section className="rs-card overflow-hidden" aria-label="Impact by campaign">
           <div className="grid md:grid-cols-[1fr_1.4fr]">
             <div className="rs-brand-panel p-7 md:p-9">
               <p className="text-[11px] font-extrabold uppercase tracking-[0.14em] opacity-70">Impact ledger</p>
               <p className="mt-2 text-[28px] font-extrabold leading-tight tracking-tight">Money with a memory.</p>
-              <p className="mt-3 max-w-xs text-sm leading-6 opacity-75">Each disaster fund reconciles collected, allocated and spent — nightly, in public.</p>
+              <p className="mt-3 max-w-xs text-sm leading-6 opacity-75">Each campaign fund reconciles donations nightly, in public.</p>
               <Link to="/dashboard" className="rs-brand-cta mt-5 inline-flex min-h-[44px] items-center gap-2 rounded-xl px-5 text-[14px] font-extrabold">Open transparency dashboard</Link>
             </div>
             <ul className="divide-y" style={{ borderColor: "var(--border-subtle)" }}>
-              {disasters.map((d, i) => (
-                <li key={d.id}>
-                  <Link to="/dashboard" className="group flex items-center gap-4 p-5 transition-colors hover:bg-[var(--bg-surface-alt)] md:px-7">
-                    <span className="kpi text-[15px] font-extrabold" style={{ color: "var(--primary-600)" }}>0{i + 1}</span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[17px] font-extrabold tracking-tight">{d.name}</span>
-                      <span className="mono mt-0.5 block text-[11.5px]" style={{ color: "var(--text-muted)" }}>{d.ngos} NGOs · {d.alertsResolved} alerts resolved</span>
-                    </span>
-                    <span className="kpi text-right text-[19px] font-extrabold">{shortINR(d.collected)}</span>
-                    <ArrowUpRight size={17} aria-hidden className="transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" style={{ color: "var(--text-muted)" }} />
-                  </Link>
-                </li>
-              ))}
+              {live.isPending ? (
+                <li className="p-5 text-sm" style={{ color: "var(--text-muted)" }}>Loading campaigns…</li>
+              ) : live.isError ? (
+                <li className="p-5 text-sm font-bold" style={{ color: "var(--risk-high)" }}>Ledger unreachable.</li>
+              ) : campaigns.length === 0 ? (
+                <li className="p-5 text-sm" style={{ color: "var(--text-muted)" }}>No campaigns yet.</li>
+              ) : (
+                campaigns.map((c, i) => (
+                  <li key={c.campaignId}>
+                    <Link to="/dashboard" className="group flex items-center gap-4 p-5 transition-colors hover:bg-[var(--bg-surface-alt)] md:px-7">
+                      <span className="kpi text-[15px] font-extrabold" style={{ color: "var(--primary-600)" }}>0{i + 1}</span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[17px] font-extrabold tracking-tight">{c.name}</span>
+                        <span className="mono mt-0.5 block text-[11.5px]" style={{ color: "var(--text-muted)" }}>{c.campaignId.slice(0, 8).toUpperCase()} · LIVE</span>
+                      </span>
+                      <span className="kpi text-right text-[19px] font-extrabold">{shortINR(c.donated)}</span>
+                      <ArrowUpRight size={17} aria-hidden className="transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" style={{ color: "var(--text-muted)" }} />
+                    </Link>
+                  </li>
+                ))
+              )}
             </ul>
           </div>
         </section>
@@ -178,10 +201,10 @@ export function Landing() {
           <h2 className="mx-auto mt-3 max-w-2xl text-balance text-[30px] font-extrabold leading-tight tracking-tight md:text-[42px]">
             Give once. Trace it forever.
           </h2>
-          <p className="mx-auto mt-3 max-w-md text-[15px]" style={{ color: "var(--text-secondary)" }}>Simulated rail, real transparency. Your test donation appears end-to-end in the ledger.</p>
+          <p className="mx-auto mt-3 max-w-md text-[15px]" style={{ color: "var(--text-secondary)" }}>Real ledger, real traceability. Your donation appears end-to-end in the ledger.</p>
           <div className="mt-7 flex flex-wrap justify-center gap-3">
             <Link to="/donate" className="rs-btn-primary !min-h-[50px] !px-8 !text-[15px]">Donate now <ArrowRight size={17} aria-hidden /></Link>
-            <Link to="/donations/DON-5000-0917" className="rs-btn-secondary !min-h-[50px] !px-8 !text-[15px]">See a traced gift</Link>
+            <Link to="/donations" className="rs-btn-secondary !min-h-[50px] !px-8 !text-[15px]">See traced gifts</Link>
           </div>
         </section>
       </Reveal>

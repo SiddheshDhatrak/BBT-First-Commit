@@ -1,5 +1,5 @@
-import { disasters } from "@/lib/mock";
 import { formatINR, formatNumber } from "@/lib/format";
+import { usePublicMetrics } from "@/lib/queries";
 
 function shortINR(v: number): string {
   if (v >= 10000000) return `₹${(v / 10000000).toFixed(2)} Cr`;
@@ -8,18 +8,29 @@ function shortINR(v: number): string {
   return formatINR(v);
 }
 
-/** Neutral professional trust ticker. */
+/** Live trust ticker — renders only from backend ledger data. */
 export function TrustTicker() {
-  const total = disasters.reduce((a, d) => a + d.collected, 0);
-  const ngos = disasters.reduce((a, d) => a + d.ngos, 0);
-  const resolved = disasters.reduce((a, d) => a + d.alertsResolved, 0);
+  const live = usePublicMetrics();
+  if (live.isPending) {
+    return (
+      <div className="relative overflow-hidden rounded-2xl border py-3" style={{ borderColor: "var(--border-subtle)", background: "var(--bg-surface)" }} aria-label="Trust highlights" aria-busy="true">
+        <p className="px-4 text-[12.5px] font-bold" style={{ color: "var(--text-muted)" }}>Loading live ledger…</p>
+      </div>
+    );
+  }
+  if (live.isError || !live.data) {
+    return (
+      <div className="relative overflow-hidden rounded-2xl border py-3" style={{ borderColor: "var(--border-subtle)", background: "var(--bg-surface)" }} aria-label="Trust highlights">
+        <p className="px-4 text-[12.5px] font-bold" style={{ color: "var(--text-muted)" }}>Live ledger unreachable — check backend connection.</p>
+      </div>
+    );
+  }
+  const m = live.data;
   const items = [
-    `${shortINR(total)} tracked`,
-    `${formatNumber(ngos)} NGOs onboarded`,
-    `${formatNumber(resolved)} alerts resolved with evidence`,
-    "94% receipt coverage",
-    "Signals, never verdicts",
-    "Simulated demo rail",
+    `${shortINR(m.totalDonated)} tracked`,
+    `${formatNumber(m.donationCount)} gifts`,
+    `${formatNumber(m.deliveryVerifiedExpenses)} deliveries verified`,
+    `${formatNumber(m.expenseCount)} expenses in ledger`,
   ];
   const row = [...items, ...items];
   return (
