@@ -1,6 +1,6 @@
 const { BedrockRuntimeClient, InvokeModelCommand } = require('@aws-sdk/client-bedrock-runtime');
 
-const DEFAULT_MODEL = 'anthropic.claude-3-sonnet-20240229-v1:0';
+const DEFAULT_MODEL = 'amazon.nova-lite-v1:0';
 
 class BedrockAdapter {
   constructor(config = {}) {

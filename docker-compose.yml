@@ -1,0 +1,107 @@
+# RahatSetu full-stack runtime (dev).
+# One command:  docker compose up --build
+# Ports: postgres :5433, backend :3000, ml-service :8001, ai-agent :8002, frontend :5173.
+#
+# AI provider: set AI_PROVIDER=bedrock with AWS credentials in the environment
+# for real Bedrock analysis (BEDROCK_MODEL_ID, default amazon.nova-lite-v1:0).
+# Default (mock) runs fully offline with deterministic responses.
+# ML provider: ML_PROVIDER=http (default) scores via ml-service; set to mock
+# for the deterministic offline stub.
+# URLs carry no trailing slash and no /api/v1 prefix (clients append it).
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: rahatsetu-postgres
+    environment:
+      POSTGRES_DB: rahatsetu
+      POSTGRES_USER: rahatsetu
+      POSTGRES_PASSWORD: rahatsetu
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rahatsetu -d rahatsetu"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  backend:
+    build: ./backend
+    container_name: rahatsetu-backend
+    ports:
+      - "3000:3000"
+    env_file:
+      - ./backend/.env
+    environment:
+      DATABASE_URL: postgres://rahatsetu:rahatsetu@postgres:5432/rahatsetu
+      DATABASE_SSL: "false"
+      ML_SERVICE_URL: http://ml-service:8001
+      BEDROCK_MODEL_ID: ${BEDROCK_MODEL_ID:-amazon.nova-lite-v1:0}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  ml-service:
+    build: ./ml-service
+    container_name: rahatsetu-ml
+    ports:
+      - "8001:8001"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8001/api/v1/health')\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+  ai-agent:
+    build: ./ai-agent
+    container_name: rahatsetu-agent
+    ports:
+      - "8002:8002"
+    environment:
+      AI_PROVIDER: ${AI_PROVIDER:-mock}
+      ML_PROVIDER: ${ML_PROVIDER:-http}
+      ML_SERVICE_URL: http://ml-service:8001
+      BACKEND_URL: http://backend:3000
+      AGENT_PORT: 8002
+      AWS_REGION: ${AWS_REGION:-ap-south-1}
+      BEDROCK_MODEL_ID: ${BEDROCK_MODEL_ID:-amazon.nova-lite-v1:0}
+    depends_on:
+      backend:
+        condition: service_started
+      ml-service:
+        condition: service_started
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8002/api/v1/health')\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  frontend:
+    image: node:22-alpine
+    container_name: rahatsetu-frontend
+    working_dir: /app
+    command: ["sh", "-c", "npm ci && npm run dev -- --host 0.0.0.0 --port 5173"]
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      VITE_API_URL: http://localhost:3000/api/v1
+      VITE_AGENT_URL: http://localhost:8002/api/v1
+    depends_on:
+      backend:
+        condition: service_started
+    restart: unless-stopped
+
+volumes:
+  pgdata:
