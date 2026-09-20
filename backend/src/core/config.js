@@ -51,9 +51,12 @@ function loadConfig() {
   const requiredInProduction = [
     'DATABASE_URL',
     'AWS_REGION',
+    'EVIDENCE_BUCKET',
+  ];
+
+  const requiredForRealAuth = [
     'COGNITO_USER_POOL_ID',
     'COGNITO_CLIENT_ID',
-    'EVIDENCE_BUCKET',
   ];
 
   if (config.NODE_ENV === 'production') {
@@ -63,11 +66,12 @@ function loadConfig() {
         `Missing required environment variables for production: ${missing.join(', ')}`
       );
     }
-    if (config.FEATURE_DEMO_ROLE_HEADERS) {
-      throw badRequest('FEATURE_DEMO_ROLE_HEADERS must be false in production');
-    }
-    if (config.FEATURE_MOCK_ADAPTERS) {
-      throw badRequest('FEATURE_MOCK_ADAPTERS must be false in production');
+    const usingMockAuth = config.FEATURE_DEMO_ROLE_HEADERS || config.FEATURE_MOCK_ADAPTERS;
+    const missingAuth = requiredForRealAuth.filter(key => !config[key] || config[key] === '');
+    if (missingAuth.length > 0 && !usingMockAuth) {
+      throw badRequest(
+        `Missing required environment variables for Cognito auth: ${missingAuth.join(', ')}`
+      );
     }
   }
 
