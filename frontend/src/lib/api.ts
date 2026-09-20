@@ -251,4 +251,14 @@ export const api = {
     request(`/auth/assign-role`, claims, { method: "POST", body: JSON.stringify({ userId, role }) }),
   deleteUser: <T,>(userId: string, claims: ActorClaims): Promise<T> =>
     request(`/auth/users/${encodeURIComponent(userId)}`, claims, { method: "DELETE" }),
+
+  // Invitations (GOVT): issue (email + copy-token), list, resend, revoke
+  createInvite: <T,>(body: { email: string; role: string; sendEmail?: boolean }, claims: ActorClaims): Promise<T> =>
+    request(`/auth/invites`, claims, { method: "POST", body: JSON.stringify(body) }),
+  listInvites: <T,>(claims: ActorClaims): Promise<T> =>
+    request(`/auth/invites`, claims),
+  resendInvite: <T,>(id: string, claims: ActorClaims): Promise<T> =>
+    request(`/auth/invites/${encodeURIComponent(id)}/resend`, claims, { method: "POST", body: "{}" }),
+  revokeInvite: <T,>(id: string, claims: ActorClaims): Promise<T> =>
+    request(`/auth/invites/${encodeURIComponent(id)}`, claims, { method: "DELETE" }),
 };

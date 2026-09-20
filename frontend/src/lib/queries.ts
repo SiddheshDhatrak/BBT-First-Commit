@@ -317,3 +317,58 @@ export function useDeleteUser() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["live", "users"] }),
   });
 }
+
+export interface Invite {
+  id: string;
+  email: string;
+  role: string;
+  token?: string;
+  consumedAt?: string | null;
+  revokedAt?: string | null;
+  createdBy?: string | null;
+  createdAt?: string | null;
+}
+
+export interface InviteResult extends Invite {
+  emailSent: boolean;
+  emailReason?: string;
+}
+
+export function useInvites() {
+  const claims = useActorClaims();
+  const admin = claims.role === "admin";
+  return useQuery({
+    queryKey: ["live", "invites"],
+    queryFn: () => api.listInvites<{ invites: Invite[] }>(claims),
+    enabled: isApiEnabled() && admin && signedIn(),
+    ...LIVE,
+  });
+}
+
+export function useCreateInvite() {
+  const claims = useActorClaims();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { email: string; role: string; sendEmail?: boolean }) =>
+      api.createInvite<InviteResult>(body, claims),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["live", "invites"] }),
+  });
+}
+
+export function useResendInvite() {
+  const claims = useActorClaims();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.resendInvite<InviteResult>(id, claims),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["live", "invites"] }),
+  });
+}
+
+export function useRevokeInvite() {
+  const claims = useActorClaims();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.revokeInvite<unknown>(id, claims),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["live", "invites"] }),
+  });
+}

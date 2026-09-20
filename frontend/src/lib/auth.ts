@@ -186,7 +186,7 @@ function toCognitoUser(user: AuthUser, tokens: AuthTokens): CognitoUser {
 }
 
 export const auth = {
-  async signUp(email: string, password: string, name: string, role: string, organizationId?: string) {
+  async signUp(email: string, password: string, name: string, role: string, organizationId?: string, opts?: { invitationToken?: string }) {
     if (!isBackendAuthConfigured()) return mockAuth.signUp(email, password, name, role, organizationId);
     return post<{ user: AuthUser; message: string }>("/auth/register", {
       email,
@@ -194,6 +194,7 @@ export const auth = {
       name,
       role,
       ...(organizationId ? { organizationId } : {}),
+      ...(opts?.invitationToken ? { invitationToken: opts.invitationToken } : {}),
     });
   },
   async confirmSignUp(email: string, code: string) {
