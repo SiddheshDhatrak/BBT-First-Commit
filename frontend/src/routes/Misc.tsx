@@ -3,12 +3,11 @@ import { Link } from "react-router-dom";
 import { ArrowRight, CheckCircle2, FileCheck2, Landmark } from "lucide-react";
 import { maskBank, formatINR, shortINR } from "@/lib/format";
 import { api } from "@/lib/api";
-import { useActorClaims, useAssignRole, useDeleteUser, useFraudAlerts, useOrganizations, usePayExpense, useUsers, useVendors, type LiveAlert, type ManagedUser } from "@/lib/queries";
+import { useActorClaims, useFraudAlerts, usePayExpense, useVendors, type LiveAlert } from "@/lib/queries";
 import { PageHeader } from "@/components/composite/Chrome";
 import { Reveal, Stagger, StaggerItem } from "@/components/luxe/Reveal";
 
 interface Vendor { id: string; name: string; status?: string }
-interface Org { id: string; name: string }
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message.slice(0, 300) : "Request failed.";
@@ -178,124 +177,6 @@ export function VendorPayments() {
           {error && <p role="alert" className="text-sm font-bold md:col-span-3" style={{ color: "var(--risk-high)" }}>{error}</p>}
           <p className="text-[12px] md:col-span-3" style={{ color: "var(--text-muted)" }}>Retries reuse a fresh Idempotency-Key per attempt; safe to retry on network failure. Amounts use {formatINR(1000)} ledger formatting.</p>
         </form>
-      </Reveal>
-    </div>
-  );
-}
-
-export function AdminUsers() {
-  const orgsQ = useOrganizations();
-  const orgs = ((orgsQ.data ?? []) as Org[]);
-  const usersQ = useUsers();
-  const users = ((usersQ.data?.users ?? []) as ManagedUser[]);
-  const pending = users.filter((u) => (u.role ?? "").toUpperCase() === "PENDING");
-  const assign = useAssignRole();
-  const remove = useDeleteUser();
-  const [busyId, setBusyId] = useState<string | null>(null);
-  const [note, setNote] = useState<string | null>(null);
-
-  const approve = async (u: ManagedUser) => {
-    const role = (u.requestedRole || "NGO").toUpperCase();
-    setBusyId(u.id);
-    setNote(null);
-    try {
-      await assign.mutateAsync({ userId: u.id, role });
-      setNote(`Approved ${u.email} as ${role}. They can now sign in to the console.`);
-    } catch (e) {
-      setNote(e instanceof Error ? e.message : "Approval failed.");
-    } finally {
-      setBusyId(null);
-    }
-  };
-
-  const reject = async (u: ManagedUser) => {
-    if (!window.confirm(`Reject and remove ${u.email}? They will have to register again.`)) return;
-    setBusyId(u.id);
-    setNote(null);
-    try {
-      await remove.mutateAsync(u.id);
-      setNote(`Removed ${u.email} from the pool.`);
-    } catch (e) {
-      setNote(e instanceof Error ? e.message : "Removal failed.");
-    } finally {
-      setBusyId(null);
-    }
-  };
-
-  return (
-    <div>
-      <PageHeader eyebrow="Admin" title="Users & Roles" sub="Approve pending NGO/vendor registrations, then manage the ledger organisations." />
-      <Reveal>
-        <div className="rs-card mb-4 p-5 md:p-6">
-          <div className="flex flex-wrap items-end justify-between gap-2">
-            <div>
-              <p className="eyebrow">Approval queue</p>
-              <h2 className="mt-1 text-[20px] font-extrabold tracking-tight">Pending registrations</h2>
-            </div>
-            <span className="mono rounded-full border px-3 py-1 text-[11px] font-bold" style={{ borderColor: "var(--border-subtle)", color: "var(--text-secondary)" }}>
-              {usersQ.isPending ? "…" : `${pending.length} PENDING`}
-            </span>
-          </div>
-          {usersQ.isPending ? (
-            <p className="mt-3 text-sm" style={{ color: "var(--text-secondary)" }} aria-busy="true">Loading users…</p>
-          ) : usersQ.isError ? (
-            <p className="mt-3 text-sm font-bold" style={{ color: "var(--risk-high)" }} role="alert">Could not load users — admin sign-in required.</p>
-          ) : pending.length === 0 ? (
-            <p className="mt-3 text-sm" style={{ color: "var(--text-secondary)" }}>Queue is clear. New NGO/vendor sign-ups appear here for approval.</p>
-          ) : (
-            <ul className="mt-4 space-y-3">
-              {pending.map((u) => (
-                <li key={u.id} className="rs-inset flex flex-wrap items-center gap-3 p-4">
-                  <div className="min-w-0 flex-1 basis-56">
-                    <p className="truncate text-[15px] font-extrabold">{u.name || u.email}</p>
-                    <p className="mono mt-0.5 truncate text-[11.5px]" style={{ color: "var(--text-muted)" }}>
-                      {u.email} · requested {(u.requestedRole || "NGO").toUpperCase()}
-                      {u.createdAt ? ` · ${u.createdAt.slice(0, 10)}` : ""}
-                    </p>
-                  </div>
-                  <button type="button" disabled={busyId === u.id} onClick={() => approve(u)} className="rs-btn-primary rs-btn-sm">
-                    {busyId === u.id ? "Saving…" : `Approve as ${(u.requestedRole || "NGO").toUpperCase()}`}
-                  </button>
-                  <button type="button" disabled={busyId === u.id} onClick={() => reject(u)} className="rs-btn-secondary rs-btn-sm">
-                    Reject
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-          {note && <p role="status" className="mt-3 text-[13px] font-bold" style={{ color: "var(--risk-low)" }}>{note}</p>}
-        </div>
-      </Reveal>
-      <Reveal>
-        <div className="rs-card mb-4 p-5 text-sm leading-6" style={{ color: "var(--text-secondary)" }}>
-          Privileged access (FIELD/GOVT) is invite-only: issue a single-use invite from the backend
-          (<span className="mono">POST /api/v1/auth/invites</span>) and share the token with the recruit,
-          who enters it at registration. User accounts and group membership otherwise live in the Cognito User Pool.
-        </div>
-      </Reveal>
-      <Reveal>
-        <div className="rs-card overflow-x-auto">
-          {orgsQ.isPending ? (
-            <p className="p-6 text-sm" style={{ color: "var(--text-secondary)" }} aria-busy="true">Loading organisations…</p>
-          ) : orgsQ.isError ? (
-            <p className="p-6 text-sm font-bold" style={{ color: "var(--risk-high)" }} role="alert">Could not load organisations.</p>
-          ) : orgs.length === 0 ? (
-            <p className="p-6 text-sm" style={{ color: "var(--text-secondary)" }}>No organisations yet.</p>
-          ) : (
-            <table className="rs-table min-w-[600px]">
-              <caption className="sr-only">Live organisations</caption>
-              <thead><tr><th scope="col">Organisation</th><th scope="col">ID</th></tr></thead>
-              <tbody>
-                {orgs.map((o) => (
-                  <tr key={o.id}>
-                    <td className="font-bold">{o.name}</td>
-                    <td className="mono text-xs" style={{ color: "var(--text-muted)" }}>{o.id}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
       </Reveal>
     </div>
   );

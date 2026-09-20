@@ -125,6 +125,18 @@ export function Login() {
         <Reveal delay={0.16}>
           <p className="text-center text-sm" style={{ color: "var(--text-secondary)" }}>Don't have an account? <Link to="/register" className="font-extrabold">Create one</Link></p>
         </Reveal>
+        <Reveal delay={0.22}>
+          <Link to="/admin" className="rs-card rs-card-lift flex items-center gap-4 p-5">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-white" style={{ background: "var(--primary-600)" }}>
+              <ShieldCheck size={20} aria-hidden />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-[16px] font-extrabold tracking-tight">Administrator?</span>
+              <span className="block text-[13px]" style={{ color: "var(--text-secondary)" }}>Open the admin console — approvals, people, invites.</span>
+            </span>
+            <ArrowRight size={17} aria-hidden style={{ color: "var(--text-muted)" }} />
+          </Link>
+        </Reveal>
       </div>
     </div>
   );
@@ -138,9 +150,14 @@ const KINDS = [
 
 export function Register() {
   const nav = useNavigate();
+  const [params] = useSearchParams();
+  const inviteToken = params.get("invite") ?? "";
+  const inviteEmail = params.get("email") ?? "";
+  const inviteRole = (params.get("role") ?? "").toUpperCase();
+  const invited = inviteToken.length > 0 && (inviteRole === "FIELD" || inviteRole === "GOVT");
   const [kind, setKind] = useState<"Donor" | "NGO" | "Vendor">("Donor");
   const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(inviteEmail);
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
@@ -159,6 +176,12 @@ export function Register() {
     }
     setLoading(true);
     try {
+      if (invited) {
+        await auth.signUp(email.trim(), password, name.trim(), inviteRole, undefined, { invitationToken: inviteToken });
+        setError("");
+        nav("/login?registered=true");
+        return;
+      }
       const roleMap = { Donor: "DONOR", NGO: "NGO", Vendor: "VENDOR" };
       await auth.signUp(email.trim(), password, name.trim(), roleMap[kind]);
       setError("");
@@ -175,6 +198,23 @@ export function Register() {
     return (
       <div>
         <PageHeader eyebrow="Join (Demo Mode)" title="Create your account" sub="Cognito not configured - using mock registration. Set VITE_COGNITO_USER_POOL_ID and VITE_COGNITO_CLIENT_ID to enable real auth." />
+        {invited && (
+        <div className="rs-card mb-4 flex items-center gap-3 p-5" role="note" style={{ borderColor: "color-mix(in srgb, var(--accent-500) 40%, transparent)" }}>
+        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-white" style={{ background: "var(--primary-600)" }}>
+        <ShieldCheck size={20} aria-hidden />
+        </span>
+        <p className="text-sm leading-6" style={{ color: "var(--text-secondary)" }}>
+        <strong style={{ color: "var(--text-primary)" }}>You were invited as {inviteRole}.</strong> Email
+        and role are locked to the invitation — just set your name and password.
+        </p>
+        </div>
+        )}
+        {invited ? (
+        <div className="rs-card p-6 text-left" style={{ borderColor: "var(--accent-500)", boxShadow: "var(--shadow-2)" }}>
+        <span className="block text-[20px] font-extrabold tracking-tight">{inviteRole}</span>
+        <span className="mt-1 block text-sm" style={{ color: "var(--text-secondary)" }}>Invited role — locked</span>
+        </div>
+        ) : (
         <div className="grid gap-4 md:grid-cols-3" role="radiogroup" aria-label="Account type">
           {KINDS.map(({ k, icon: Icon, d }) => (
             <motion.button
@@ -193,14 +233,15 @@ export function Register() {
             </motion.button>
           ))}
         </div>
+        )}
         <Reveal className="mt-4">
           <form className="rs-card mx-auto max-w-lg space-y-4 p-6 md:p-8" onSubmit={handleSubmit}>
             {error && <p role="alert" className="rs-inset flex items-center gap-2.5 p-3.5 text-[13px] font-semibold text-red-400"><AlertCircle size={16} aria-hidden /> {error}</p>}
             <label className="block text-sm font-bold">Organisation / full name<input required value={name} onChange={(e) => setName(e.target.value)} className="rs-input mt-2" autoComplete="organization" placeholder="Seva Sahyog Foundation" /></label>
-            <label className="block text-sm font-bold">Email<input required value={email} onChange={(e) => setEmail(e.target.value)} type="email" className="rs-input mt-2" autoComplete="email" placeholder="you@example.org" /></label>
+            <label className="block text-sm font-bold">Email<input required value={email} onChange={(e) => setEmail(e.target.value)} type="email" disabled={invited} className="rs-input mt-2" autoComplete="email" placeholder="you@example.org" /></label>
             <label className="block text-sm font-bold">Password<input required value={password} onChange={(e) => setPassword(e.target.value)} type="password" className="rs-input mt-2" autoComplete="new-password" placeholder="Min 8 characters" /></label>
             <label className="block text-sm font-bold">Confirm Password<input required value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} type="password" className="rs-input mt-2" autoComplete="new-password" placeholder="Confirm password" /></label>
-            <button type="submit" className="rs-btn-accent w-full !min-h-[52px]" disabled={loading}>{loading ? <Loader2 size={16} className="animate-spin" /> : <>Create {kind} account <ArrowRight size={16} aria-hidden /></>}</button>
+            <button type="submit" className="rs-btn-accent w-full !min-h-[52px]" disabled={loading}>{loading ? <Loader2 size={16} className="animate-spin" /> : <>Create {invited ? inviteRole.charAt(0) + inviteRole.slice(1).toLowerCase() : kind} account <ArrowRight size={16} aria-hidden /></>}</button>
           </form>
         </Reveal>
       </div>
@@ -210,6 +251,23 @@ export function Register() {
   return (
     <div>
       <PageHeader eyebrow="Join" title="Create your account" sub="Donor / NGO / Vendor self-registration. NGO & vendor go to pending approval." />
+      {invited && (
+      <div className="rs-card mb-4 flex items-center gap-3 p-5" role="note" style={{ borderColor: "color-mix(in srgb, var(--accent-500) 40%, transparent)" }}>
+      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-white" style={{ background: "var(--primary-600)" }}>
+      <ShieldCheck size={20} aria-hidden />
+      </span>
+      <p className="text-sm leading-6" style={{ color: "var(--text-secondary)" }}>
+      <strong style={{ color: "var(--text-primary)" }}>You were invited as {inviteRole}.</strong> Email
+      and role are locked to the invitation — just set your name and password.
+      </p>
+      </div>
+      )}
+      {invited ? (
+      <div className="rs-card p-6 text-left" style={{ borderColor: "var(--accent-500)", boxShadow: "var(--shadow-2)" }}>
+      <span className="block text-[20px] font-extrabold tracking-tight">{inviteRole}</span>
+      <span className="mt-1 block text-sm" style={{ color: "var(--text-secondary)" }}>Invited role — locked</span>
+      </div>
+      ) : (
       <div className="grid gap-4 md:grid-cols-3" role="radiogroup" aria-label="Account type">
         {KINDS.map(({ k, icon: Icon, d }) => (
           <motion.button
@@ -228,14 +286,15 @@ export function Register() {
           </motion.button>
         ))}
       </div>
+      )}
       <Reveal className="mt-4">
         <form className="rs-card mx-auto max-w-lg space-y-4 p-6 md:p-8" onSubmit={handleSubmit}>
           {error && <p role="alert" className="rs-inset flex items-center gap-2.5 p-3.5 text-[13px] font-semibold text-red-400"><AlertCircle size={16} aria-hidden /> {error}</p>}
           <label className="block text-sm font-bold">Organisation / full name<input required value={name} onChange={(e) => setName(e.target.value)} className="rs-input mt-2" autoComplete="organization" placeholder="Seva Sahyog Foundation" /></label>
-          <label className="block text-sm font-bold">Email<input required value={email} onChange={(e) => setEmail(e.target.value)} type="email" className="rs-input mt-2" autoComplete="email" placeholder="you@example.org" /></label>
+          <label className="block text-sm font-bold">Email<input required value={email} onChange={(e) => setEmail(e.target.value)} type="email" disabled={invited} className="rs-input mt-2" autoComplete="email" placeholder="you@example.org" /></label>
           <label className="block text-sm font-bold">Password<input required value={password} onChange={(e) => setPassword(e.target.value)} type="password" className="rs-input mt-2" autoComplete="new-password" placeholder="Min 8 characters" /></label>
           <label className="block text-sm font-bold">Confirm Password<input required value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} type="password" className="rs-input mt-2" autoComplete="new-password" placeholder="Confirm password" /></label>
-          <button type="submit" className="rs-btn-accent w-full !min-h-[52px]" disabled={loading}>{loading ? <Loader2 size={16} className="animate-spin" /> : <>Create {kind} account <ArrowRight size={16} aria-hidden /></>}</button>
+          <button type="submit" className="rs-btn-accent w-full !min-h-[52px]" disabled={loading}>{loading ? <Loader2 size={16} className="animate-spin" /> : <>Create {invited ? inviteRole.charAt(0) + inviteRole.slice(1).toLowerCase() : kind} account <ArrowRight size={16} aria-hidden /></>}</button>
           <p className="text-center text-sm" style={{ color: "var(--text-secondary)" }}>Have an account? <Link to="/login" className="font-extrabold">Sign in</Link></p>
         </form>
       </Reveal>

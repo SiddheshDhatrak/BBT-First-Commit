@@ -67,10 +67,15 @@ const MISC = {
   VendorKYC: lazy(() => import("@/routes/Misc").then((m) => ({ default: m.VendorKYC }))),
   VendorInvoices: lazy(() => import("@/routes/Misc").then((m) => ({ default: m.VendorInvoices }))),
   VendorPayments: lazy(() => import("@/routes/Misc").then((m) => ({ default: m.VendorPayments }))),
-  AdminUsers: lazy(() => import("@/routes/Misc").then((m) => ({ default: m.AdminUsers }))),
   AdminRules: lazy(() => import("@/routes/Misc").then((m) => ({ default: m.AdminRules }))),
   NotFound: lazy(() => import("@/routes/Misc").then((m) => ({ default: m.NotFound }))),
   Forbidden: lazy(() => import("@/routes/Misc").then((m) => ({ default: m.Forbidden }))),
+};
+const ADMIN = {
+  AdminHome: lazy(() => import("@/routes/Admin").then((m) => ({ default: m.AdminHome }))),
+  Approvals: lazy(() => import("@/routes/Admin").then((m) => ({ default: m.Approvals }))),
+  Users: lazy(() => import("@/routes/Admin").then((m) => ({ default: m.Users }))),
+  Invites: lazy(() => import("@/routes/Admin").then((m) => ({ default: m.Invites }))),
 };
 
 function RequireRole({ allow, children }: { allow: Role[]; children: React.ReactElement }) {
@@ -98,7 +103,7 @@ function RoleHome() {
   if (role === "vendor") return <MISC.VendorHome />;
   if (role === "field") return <MISC.VendorHome />;
   if (role === "auditor") return <AUD.CommandCentre />;
-  if (role === "admin") return <MISC.AdminUsers />;
+  if (role === "admin") return <Navigate to="/admin" replace />;
   return <DonorHome />;
 }
 
@@ -187,7 +192,10 @@ export default function App() {
             <Route path="auditor/funds" element={<RequireRole allow={["auditor", "admin"]}><AUD.AllFunds /></RequireRole>} />
             <Route path="auditor/geo" element={<RequireRole allow={["auditor", "admin"]}><AUD.GeoView /></RequireRole>} />
             <Route path="auditor/audit" element={<RequireRole allow={["auditor", "admin"]}><AUD.AuditLog /></RequireRole>} />
-            <Route path="admin/users" element={<RequireRole allow={["admin"]}><MISC.AdminUsers /></RequireRole>} />
+            <Route path="admin" element={<RequireRole allow={["admin"]}><ADMIN.AdminHome /></RequireRole>} />
+            <Route path="admin/approvals" element={<RequireRole allow={["admin"]}><ADMIN.Approvals /></RequireRole>} />
+            <Route path="admin/users" element={<RequireRole allow={["admin"]}><ADMIN.Users /></RequireRole>} />
+            <Route path="admin/invites" element={<RequireRole allow={["admin"]}><ADMIN.Invites /></RequireRole>} />
             <Route path="admin/rules" element={<RequireRole allow={["admin"]}><MISC.AdminRules /></RequireRole>} />
             <Route path="403" element={<MISC.Forbidden />} />
             <Route path="404" element={<MISC.NotFound />} />

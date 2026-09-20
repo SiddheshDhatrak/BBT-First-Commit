@@ -4,7 +4,7 @@ import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-do
 import { AnimatePresence, motion } from "motion/react";
 import {
   Bell, ChevronLeft, HandCoins, HeartHandshake, Home, LayoutDashboard, LogOut,
-  Menu, Scale, Search, ShieldCheck, Sparkles, Users, FileWarning, X, ArrowUpRight,
+  Menu, Scale, Search, ShieldCheck, Sparkles, Users, UserPlus, FileWarning, X, ArrowUpRight,
 } from "lucide-react";
 import { ThemeToggle, SyntheticRibbon } from "@/components/composite/Chrome";
 import { ConnectionDot } from "@/components/composite/ConnectionDot";
@@ -12,9 +12,11 @@ import { Logo } from "@/components/brand/Logo";
 import { useLenis } from "@/components/luxe/useLenis";
 import { useUI, type Role } from "@/lib/store";
 import { auth } from "@/lib/auth";
-import { useFraudAlerts, type LiveAlert } from "@/lib/queries";
+import { useFraudAlerts, useUsers, type LiveAlert } from "@/lib/queries";
 
-const NAV_BY_ROLE: Record<Role, { to: string; label: string; hint: string; icon: typeof Home }[]> = {
+export interface NavItem { to: string; label: string; hint: string; icon: typeof Home; badge?: string }
+
+const NAV_BY_ROLE: Record<Role, NavItem[]> = {
   donor: [
     { to: "/app", label: "Donor Home", hint: "Overview", icon: Home },
     { to: "/app/donate", label: "Donate", hint: "Give", icon: HandCoins },
@@ -47,8 +49,10 @@ const NAV_BY_ROLE: Record<Role, { to: string; label: string; hint: string; icon:
     { to: "/auditor/funds", label: "All Funds", hint: "Ledger", icon: FileWarning },
   ],
   admin: [
-    { to: "/app", label: "Admin Home", hint: "Overview", icon: Home },
+    { to: "/admin", label: "Command Deck", hint: "Overview", icon: LayoutDashboard },
+    { to: "/admin/approvals", label: "Approvals", hint: "Pending queue", icon: ShieldCheck, badge: "pendingCount" },
     { to: "/admin/users", label: "Users & Roles", hint: "Access", icon: Users },
+    { to: "/admin/invites", label: "Invitations", hint: "Onboard", icon: UserPlus },
     { to: "/admin/rules", label: "Rule Thresholds", hint: "Tune", icon: Scale },
   ],
   pending: [
@@ -245,6 +249,16 @@ export function AppShell() {
   const mobileCloseRef = useRef<HTMLButtonElement>(null);
   const items = NAV_BY_ROLE[role] ?? NAV_BY_ROLE.guest;
 
+  // Live pending-approval count for the admin sidebar badge.
+  const usersQ = useUsers();
+  const pendingCount = role === "admin"
+    ? (usersQ.data?.users ?? []).filter((u) => (u.role ?? "").toUpperCase() === "PENDING").length
+    : 0;
+  const badgeText = (kind: string) => {
+    if (kind === "pendingCount") return pendingCount > 0 ? (pendingCount > 9 ? "9+" : String(pendingCount)) : "";
+    return "";
+  };
+
   // Single hamburger that always does something: sidebar toggle on desktop, drawer on mobile.
   const handleHamburger = useCallback(() => {
     if (typeof window !== "undefined" && window.matchMedia("(min-width: 768px)").matches) {
@@ -371,6 +385,11 @@ export function AppShell() {
                 <span className="mono block text-[10px] font-medium tracking-wide" style={{ color: "var(--text-muted)" }}>{n.hint}</span>
               </span>
             )}
+            {n.badge && badgeText(n.badge) && (
+              <span className="mono shrink-0 rounded-full px-2 py-0.5 text-[10px] font-extrabold" style={{ background: "var(--risk-med)", color: "#fff" }} aria-label={`${badgeText(n.badge)} pending`}>
+                {badgeText(n.badge)}
+              </span>
+            )}
           </NavLink>
         ))}
       </nav>
@@ -442,6 +461,11 @@ export function AppShell() {
                       <span className="block truncate leading-tight">{n.label}</span>
                       <span className="mono block text-[10px] font-medium tracking-wide" style={{ color: "var(--text-muted)" }}>{n.hint}</span>
                     </span>
+                    {n.badge && badgeText(n.badge) && (
+                      <span className="mono shrink-0 rounded-full px-2 py-0.5 text-[10px] font-extrabold" style={{ background: "var(--risk-med)", color: "#fff" }}>
+                        {badgeText(n.badge)}
+                      </span>
+                    )}
                   </NavLink>
                 ))}
               </nav>
