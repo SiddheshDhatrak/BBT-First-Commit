@@ -30,6 +30,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
+          fetch-depth: 0
+          sparse-checkout-cone-mode: false
           sparse-checkout: ''
 
       - name: Configure AWS Credentials (OIDC)
@@ -146,6 +148,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
+          fetch-depth: 0
+          sparse-checkout-cone-mode: false
           sparse-checkout: ''
 
       - name: Setup Node
