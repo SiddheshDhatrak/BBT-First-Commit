@@ -14,6 +14,7 @@ export function Login() {
   const loc = useLocation() as { state?: { from?: string } };
   const [params] = useSearchParams();
   const justRegistered = params.get("registered") === "true";
+  const sessionExpired = params.get("expired") === "true";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [role, setR] = useState<"donor" | "ngo" | "vendor" | "field" | "auditor" | "admin">("donor");
@@ -40,7 +41,8 @@ export function Login() {
       setUser({ name: result.user.name, email: result.user.email, role: result.user.role, organizationId: result.user.organizationId || undefined, accessToken: result.accessToken, refreshToken: result.refreshToken, idToken: result.idToken });
       setRole(frontendRole as any);
       applyRoleTheme(frontendRole);
-      nav(loc.state?.from ?? "/app");
+      if (frontendRole === "pending") nav("/pending");
+      else nav(loc.state?.from ?? "/app");
     } catch (err: any) {
       setError(err.message || "Login failed");
     } finally {
@@ -69,6 +71,7 @@ export function Login() {
           <Reveal delay={0.08}>
             <form className="rs-card space-y-4 p-6 md:p-8" onSubmit={handleSubmit}>
               {justRegistered && <p role="status" className="rs-inset p-3.5 text-[13px] font-semibold" style={{ color: "var(--risk-low)" }}>Account created — sign in with your new credentials.</p>}
+              {sessionExpired && <p role="status" className="rs-inset p-3.5 text-[13px] font-semibold" style={{ color: "var(--risk-med)" }}>Your session expired — please sign in again.</p>}
               {error && <p role="alert" className="rs-inset flex items-center gap-2.5 p-3.5 text-[13px] font-semibold text-red-400"><AlertCircle size={16} aria-hidden /> {error}</p>}
               {fromDonate && (
                 <p role="note" className="rs-inset flex items-center gap-2.5 p-3.5 text-[13px] font-semibold" style={{ color: "var(--text-secondary)" }}>

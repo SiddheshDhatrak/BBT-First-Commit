@@ -75,6 +75,8 @@ function RequireRole({ allow, children }: { allow: Role[]; children: React.React
   const { role } = useUI();
   const loc = useLocation();
   if (role === "guest") return <Navigate to="/login" replace state={{ from: loc.pathname }} />;
+  // Registered but awaiting GOVT approval: console is off-limits, pending page explains next steps.
+  if (role === "pending") return <Navigate to="/pending" replace />;
   if (!allow.includes(role)) return <MISC.Forbidden />;
   return children;
 }
@@ -89,6 +91,7 @@ function RequireAuth({ children }: { children: React.ReactElement }) {
 function RoleHome() {
   const { role } = useUI();
   if (role === "guest") return <Navigate to="/login" replace />;
+  if (role === "pending") return <Navigate to="/pending" replace />;
   if (role === "ngo") return <NGO.OrgDashboard />;
   if (role === "vendor") return <MISC.VendorHome />;
   if (role === "field") return <MISC.VendorHome />;

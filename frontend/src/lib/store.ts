@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-export type Role = "donor" | "ngo" | "vendor" | "field" | "auditor" | "admin" | "guest";
+export type Role = "donor" | "ngo" | "vendor" | "field" | "auditor" | "admin" | "pending" | "guest";
 export type Theme = "light" | "dark";
 
 export interface UserInfo {

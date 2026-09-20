@@ -55,13 +55,45 @@ function headers(claims: ActorClaims, extra: Record<string, string> = {}) {
 
 async function request<T>(path: string, claims: ActorClaims, init: RequestInit = {}, idempotencyKey?: string): Promise<T> {
   if (!isApiEnabled()) throw new Error("API disabled: set VITE_API_URL to enable live backend calls.");
-  const res = await fetch(`${BASE}${path}`, {
-    ...init,
-    headers: headers(claims, {
-      ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
-      ...((init.headers as Record<string, string> | undefined) ?? {}),
-    }),
-  });
+  const send = (token: string | undefined) =>
+    fetch(`${BASE}${path}`, {
+      ...init,
+      headers: headers({ ...claims, accessToken: token }, {
+        ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
+        ...((init.headers as Record<string, string> | undefined) ?? {}),
+      }),
+    });
+  let res = await send(claims.accessToken);
+  if (res.status === 401 && claims.accessToken && !path.startsWith("/auth/")) {
+    // Access token expired: try one silent refresh, then sign out globally.
+    try {
+      const { auth } = await import("@/lib/auth");
+      const refreshed = await auth.refreshSession();
+      const retry = await send(refreshed.accessToken);
+      if (retry.ok) {
+        const { useUI } = await import("@/lib/store");
+        useUI.getState().setUser({
+          ...(useUI.getState().user as { name: string; email: string }),
+          accessToken: refreshed.accessToken,
+          refreshToken: refreshed.refreshToken,
+          idToken: refreshed.idToken,
+        });
+        return retry.json() as Promise<T>;
+      }
+    } catch {
+      /* refresh failed — fall through to global sign-out */
+    }
+    try {
+      const { useUI } = await import("@/lib/store");
+      useUI.getState().signOut();
+    } catch {
+      /* noop */
+    }
+    if (typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
+      window.location.href = "/login?expired=true";
+    }
+    throw new Error(`API 401 ${path}: session expired — signed out.`);
+  }
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(`API ${res.status} ${path}: ${text.slice(0, 200)}`);
