@@ -9,6 +9,9 @@ import type { Role } from "@/lib/store";
 const BASE = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ?? "";
 const AGENT_BASE = (import.meta.env.VITE_AGENT_URL as string | undefined)?.replace(/\/$/, "") ?? "";
 
+/** Ensure all API calls use /api/v1 prefix */
+const API_BASE = BASE.endsWith("/api/v1") ? BASE : `${BASE}/api/v1`;
+
 export const isApiEnabled = () => BASE.length > 0;
 export const isAgentEnabled = () => AGENT_BASE.length > 0;
 
@@ -94,8 +97,8 @@ export const agent = {
 };
 
 export const api = {
-  health: () => fetch(`${BASE}/health`).then((r) => { if (!r.ok) throw new Error(`health ${r.status}`); return r.json(); }),
-  publicDashboard: <T,>(): Promise<T> => fetch(`${BASE}/dashboard/public`).then((r) => { if (!r.ok) throw new Error(`public ${r.status}`); return r.json(); }),
+  health: () => fetch(`${API_BASE}/health`).then((r) => { if (!r.ok) throw new Error(`health ${r.status}`); return r.json(); }),
+  publicDashboard: <T,>(): Promise<T> => fetch(`${API_BASE}/dashboard/public`).then((r) => { if (!r.ok) throw new Error(`public ${r.status}`); return r.json(); }),
   lineage: <T,>(donationId: string, claims: ActorClaims): Promise<T> =>
     request(`/donations/${encodeURIComponent(donationId)}/lineage`, claims),
   fraudAlerts: <T,>(claims: ActorClaims): Promise<T> => request(`/fraud-alerts`, claims),
