@@ -65,7 +65,7 @@ function createApp({ repository, config } = {}) {
   const delivery = createDeliveryService(repo, audit);
   const oversight = createOversightService(repo, audit);
   const demo = createDemoService(repo, relief, delivery);
-  const auth = createAuthService(cfg);
+  const auth = createAuthService(cfg, repo);
   const { createAuthRoutes } = require('./modules/auth/routes');
   const app = express();
 
@@ -102,6 +102,18 @@ function createApp({ repository, config } = {}) {
     },
   });
   app.use('/api/', limiter);
+
+  // Stricter brute-force protection on the auth surface.
+  const authLimiter = rateLimit({
+    windowMs: Number(process.env.RATE_LIMIT_AUTH_WINDOW_MS) || 60_000,
+    max: Number(process.env.RATE_LIMIT_AUTH_MAX) || 10,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: {
+      error: { code: 'RATE_LIMITED', message: 'Too many auth attempts, please try again later.' },
+    },
+  });
+  app.use('/api/v1/auth/', authLimiter);
 
   app.get('/api-docs/openapi.json', (req, res) => res.json(openapi));
   app.use(
@@ -270,7 +282,7 @@ function createApp({ repository, config } = {}) {
   router.add(
     'POST',
     '/api/v1/vendors',
-    withRole([roles.NGO], validate(vendorSchema, 'body'), ({ body, actor }) => ({
+    withRole([roles.NGO, roles.VENDOR, roles.GOVT], validate(vendorSchema, 'body'), ({ body, actor }) => ({
       status: 201,
       body: relief.createVendor(body, actor),
     }))
@@ -278,7 +290,7 @@ function createApp({ repository, config } = {}) {
   router.add(
     'POST',
     '/api/v1/vendors/:id/bank-accounts',
-    withRole([roles.NGO], validate(vendorBankAccountSchema, 'body'), ({ params, body, actor }) => ({
+    withRole([roles.NGO, roles.VENDOR], validate(vendorBankAccountSchema, 'body'), ({ params, body, actor }) => ({
       status: 201,
       body: relief.addVendorBankAccount(params.id, body, actor),
     }))
@@ -286,7 +298,7 @@ function createApp({ repository, config } = {}) {
   router.add(
     'GET',
     '/api/v1/vendors/:id/bank-accounts',
-    withRole([roles.NGO, roles.GOVT], ({ params, actor }) => ({
+    withRole([roles.NGO, roles.VENDOR, roles.GOVT], ({ params, actor }) => ({
       body: relief.getVendorBankAccounts(params.id, actor),
     }))
   );
@@ -301,7 +313,7 @@ function createApp({ repository, config } = {}) {
   router.add(
     'POST',
     '/api/v1/invoices/upload',
-    withRole([roles.NGO], validate(invoiceSchema, 'body'), ({ body, actor }) => ({
+    withRole([roles.NGO, roles.VENDOR], validate(invoiceSchema, 'body'), ({ body, actor }) => ({
       status: 201,
       body: relief.uploadInvoice(body, actor),
     }))
@@ -309,7 +321,7 @@ function createApp({ repository, config } = {}) {
   router.add(
     'GET',
     '/api/v1/invoices/:id/verification',
-    withRole([roles.NGO, roles.GOVT], ({ params, actor }) => {
+    withRole([roles.NGO, roles.VENDOR, roles.GOVT], ({ params, actor }) => {
       const invoice = repo.find('invoices', params.id);
       const po = repo.find('purchaseOrders', invoice.poId);
       requireOrganization(actor, po.organizationId);
@@ -342,7 +354,7 @@ function createApp({ repository, config } = {}) {
   router.add(
     'GET',
     '/api/v1/expenses/:id/verification',
-    withRole([roles.NGO, roles.GOVT], ({ params, actor }) => {
+    withRole([roles.NGO, roles.VENDOR, roles.GOVT], ({ params, actor }) => {
       const expense = repo.find('expenses', params.id);
       requireOrganization(actor, expense.organizationId);
       return { body: oversight.getExpenseVerification(params.id) };
@@ -461,13 +473,13 @@ function createApp({ repository, config } = {}) {
     );
   }
 
-  createAuthRoutes(router, auth);
+  createAuthRoutes(router, auth, { withRole });
 
   router.add(
     'POST',
     '/api/v1/verification/invoices/:id/process',
     withRole(
-      [roles.NGO, roles.GOVT],
+      [roles.NGO, roles.VENDOR, roles.GOVT],
       validate(verificationInvoiceSchema, 'body'),
       async ({ params, body, actor, req }) => {
         const fileBuffer = Buffer.from(body.fileBase64 || '', 'base64');
@@ -517,7 +529,7 @@ function createApp({ repository, config } = {}) {
   router.add(
     'GET',
     '/api/v1/verification/invoices/:id/status',
-    withRole([roles.NGO, roles.GOVT], ({ params, actor }) => {
+    withRole([roles.NGO, roles.VENDOR, roles.GOVT], ({ params, actor }) => {
       const invoice = repo.find('invoices', params.id);
       const po = repo.find('purchaseOrders', invoice.poId);
       requireOrganization(actor, po.organizationId);
@@ -563,7 +575,7 @@ function createApp({ repository, config } = {}) {
   router.add(
     'GET',
     '/api/v1/verification/s3-signed-url',
-    withRole([roles.NGO, roles.GOVT], validate(s3SignedUrlSchema, 'query'), ({ query, actor }) => {
+    withRole([roles.NGO, roles.VENDOR, roles.GOVT], validate(s3SignedUrlSchema, 'query'), ({ query, actor }) => {
       const { bucket, key, operation = 'putObject', expiresIn = 3600 } = query;
       return {
         body: {

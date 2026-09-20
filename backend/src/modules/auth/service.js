@@ -1,4 +1,5 @@
-const { CognitoIdentityProviderClient, AdminCreateUserCommand, AdminSetUserPasswordCommand, AdminAddUserToGroupCommand, AdminDeleteUserCommand, AdminConfirmSignUpCommand, AdminResendConfirmationCodeCommand, ForgotPasswordCommand, ConfirmForgotPasswordCommand, InitiateAuthCommand, GlobalSignOutCommand, SignUpCommand, ConfirmSignUpCommand, ResendConfirmationCodeCommand, AdminUpdateUserAttributesCommand, AdminGetUserCommand, ListUsersCommand } = require('@aws-sdk/client-cognito-identity-provider');
+const { CognitoIdentityProviderClient, AdminCreateUserCommand, AdminSetUserPasswordCommand, AdminAddUserToGroupCommand, AdminDeleteUserCommand, AdminConfirmSignUpCommand, AdminResendConfirmationCodeCommand, ForgotPasswordCommand, ConfirmForgotPasswordCommand, InitiateAuthCommand, GlobalSignOutCommand, SignUpCommand, ConfirmSignUpCommand, ResendConfirmationCodeCommand, AdminUpdateUserAttributesCommand, AdminGetUserCommand, AdminListGroupsForUserCommand, ListUsersCommand } = require('@aws-sdk/client-cognito-identity-provider');
+const { randomUUID } = require('node:crypto');
 const { badRequest, conflict, forbidden, notFound, unauthorized } = require('../../core/errors');
 const { loadConfig } = require('../../core/config');
 
@@ -13,8 +14,10 @@ const ROLE_GROUP_MAP = {
 };
 
 const MOCK_USERS = new Map();
+const MOCK_REFRESH_TOKENS = new Map(); // refreshToken -> email (mock mode only)
+const MEMORY_INVITES = new Map(); // fallback when no repository is wired
 
-function createAuthService(config = loadConfig()) {
+function createAuthService(config = loadConfig(), repo = null) {
   const userPoolId = config.COGNITO_USER_POOL_ID;
   const clientId = config.COGNITO_CLIENT_ID;
 
@@ -25,37 +28,102 @@ function createAuthService(config = loadConfig()) {
   }
 
   // Public self-registration is limited to DONOR/NGO/VENDOR. FIELD and GOVT
-  // require a GOVT/SYSTEM actor (admin invite flow) or a valid invitation token.
+  // require a valid single-use invitation (see createInvite). NGO and VENDOR
+  // self-registrations are created WITHOUT a group and resolve to PENDING
+  // until a GOVT actor approves them via assignRole (deferred grouping).
   const SELF_SERVE_ROLES = ['DONOR', 'NGO', 'VENDOR'];
   const PRIVILEGED_ROLES = ['FIELD', 'GOVT'];
+  const INSTANT_ROLES = ['DONOR'];
+
+  async function findInvite(token) {
+    if (repo) {
+      return (await repo.first('invitations', i => i.token === token)) || null;
+    }
+    return MEMORY_INVITES.get(token) || null;
+  }
+
+  async function saveInvite(invite) {
+    if (repo) return repo.insert('invitations', invite);
+    const row = { id: invite.id || randomUUID(), createdAt: new Date().toISOString(), ...invite };
+    MEMORY_INVITES.set(row.token, row);
+    return row;
+  }
+
+  async function consumeInvite(token, email, role) {
+    if (!token) throw forbidden('FIELD and GOVT roles require an admin invitation.');
+    const invite = await findInvite(token);
+    if (!invite) throw forbidden('Invalid invitation token.');
+    if (invite.consumedAt) throw forbidden('Invitation token has already been used.');
+    if (String(invite.email).toLowerCase() !== String(email).toLowerCase() || invite.role !== role) {
+      throw forbidden('Invitation token does not match this registration.');
+    }
+    const consumedAt = new Date().toISOString();
+    if (repo) {
+      await repo.update('invitations', invite.id, { consumedAt });
+    } else if (MEMORY_INVITES.has(token)) {
+      MEMORY_INVITES.get(token).consumedAt = consumedAt;
+    }
+    return invite;
+  }
+
+  async function createInvite(input, actor) {
+    if (!actor || (actor.role !== 'GOVT' && actor.role !== 'SYSTEM')) {
+      throw forbidden('Only government users can create invitations.');
+    }
+    const role = String(input.role || '').toUpperCase();
+    if (!PRIVILEGED_ROLES.includes(role)) {
+      throw badRequest('Invitations are only issued for FIELD and GOVT roles.');
+    }
+    if (!input.email || !input.email.includes('@')) {
+      throw badRequest('A valid email is required.');
+    }
+    const invite = await saveInvite({
+      email: String(input.email).trim().toLowerCase(),
+      role,
+      token: randomUUID().replace(/-/g, ''),
+      consumedAt: null,
+      createdBy: actor.id || null,
+    });
+    return { id: invite.id, email: invite.email, role: invite.role, token: invite.token };
+  }
 
   function resolveRegistrationRole(input, actor) {
     const requested = String(input.role || 'DONOR').toUpperCase();
-    if (PRIVILEGED_ROLES.includes(requested)) {
-      const approver = actor && (actor.role === 'GOVT' || actor.role === 'SYSTEM');
-      if (!approver && !input.invitationToken) {
-        throw forbidden('FIELD and GOVT roles require an admin invitation.');
-      }
+    if (![...SELF_SERVE_ROLES, ...PRIVILEGED_ROLES].includes(requested)) {
+      throw badRequest('Invalid role.');
     }
-    return SELF_SERVE_ROLES.includes(requested) ? requested : requested;
+    return requested;
   }
 
   async function registerUser(input, actor) {
     const role = resolveRegistrationRole(input, actor);
+    if (PRIVILEGED_ROLES.includes(role)) {
+      await consumeInvite(input.invitationToken, input.email, role);
+    }
+    // DONOR is active immediately; NGO/VENDOR wait for group assignment.
+    const pending = !INSTANT_ROLES.includes(role) && !PRIVILEGED_ROLES.includes(role);
+    const effectiveRole = pending ? 'PENDING' : role;
     if (!isConfigured) {
       const mockUser = {
         id: `mock-${Date.now()}`,
         email: input.email,
         name: input.name,
-        role,
+        role: effectiveRole,
+        requestedRole: pending ? role : undefined,
         organizationId: input.organizationId || null,
         emailVerified: true,
         status: 'CONFIRMED',
         createdAt: new Date().toISOString(),
         lastModified: new Date().toISOString(),
       };
-      MOCK_USERS.set(input.email, mockUser);
-      return { user: mockUser, message: 'Mock registration (Cognito not configured)' };
+      MOCK_USERS.set(input.email, { ...mockUser, password: input.password });
+      return {
+        user: mockUser,
+        status: pending ? 'PENDING' : 'ACTIVE',
+        message: pending
+          ? 'Registration received. A government reviewer must approve it before console access.'
+          : 'Mock registration (Cognito not configured)',
+      };
     }
 
     const existingUser = await getUserByEmail(input.email);
@@ -89,13 +157,15 @@ function createAuthService(config = loadConfig()) {
       Permanent: true,
     }));
 
-    const groupName = ROLE_GROUP_MAP[role];
-    if (groupName) {
-      await cognitoClient.send(new AdminAddUserToGroupCommand({
-        UserPoolId: userPoolId,
-        Username: input.email,
-        GroupName: groupName,
-      }));
+    if (!pending) {
+      const groupName = ROLE_GROUP_MAP[role];
+      if (groupName) {
+        await cognitoClient.send(new AdminAddUserToGroupCommand({
+          UserPoolId: userPoolId,
+          Username: input.email,
+          GroupName: groupName,
+        }));
+      }
     }
 
     await cognitoClient.send(new AdminConfirmSignUpCommand({
@@ -104,23 +174,31 @@ function createAuthService(config = loadConfig()) {
     }));
 
     const user = await getUserByEmail(input.email);
-    return { user, message: 'User registered successfully. Please check your email for verification.' };
+    return {
+      user: user && pending ? { ...user, role: 'PENDING', requestedRole: role } : user,
+      status: pending ? 'PENDING' : 'ACTIVE',
+      message: pending
+        ? 'Registration received. A government reviewer must approve it before console access.'
+        : 'Your account is active — sign in to continue.',
+    };
   }
 
   async function loginUser(input) {
     if (!isConfigured) {
       const { email, password } = input;
+      const stored = MOCK_USERS.get(email);
       const user = await getUserByEmail(email);
-      if (!user || password !== 'password123') {
+      if (!user || (stored && stored.password ? stored.password !== password : password !== 'password123')) {
         throw unauthorized('Invalid email or password');
       }
-      return {
+      const tokens = {
         accessToken: `mock-access-token-${Date.now()}`,
         refreshToken: `mock-refresh-token-${Date.now()}`,
         idToken: `mock-id-token-${Date.now()}`,
         expiresIn: 3600,
-        user,
       };
+      MOCK_REFRESH_TOKENS.set(tokens.refreshToken, email);
+      return { ...tokens, user };
     }
 
     const { email, password } = input;
@@ -238,6 +316,10 @@ function createAuthService(config = loadConfig()) {
 
   async function refreshToken(input) {
     if (!isConfigured) {
+      const email = MOCK_REFRESH_TOKENS.get(input.refreshToken);
+      if (!email || !MOCK_USERS.has(email)) {
+        throw unauthorized('Invalid refresh token');
+      }
       return {
         accessToken: `mock-access-token-${Date.now()}`,
         idToken: `mock-id-token-${Date.now()}`,
@@ -283,9 +365,29 @@ function createAuthService(config = loadConfig()) {
     return { message: 'Logged out successfully' };
   }
 
+  // Users with no group membership (self-registered NGO/VENDOR awaiting
+  // approval) resolve to PENDING regardless of their requested custom:role.
+  async function resolveGroups(username) {
+    if (!isConfigured) return null;
+    const result = await cognitoClient.send(new AdminListGroupsForUserCommand({
+      UserPoolId: userPoolId,
+      Username: username,
+    }));
+    return (result.Groups || []).map(g => g.GroupName);
+  }
+
+  function applyPending(user, groups) {
+    if (!user) return user;
+    if (Array.isArray(groups) && groups.length === 0) {
+      return { ...user, requestedRole: user.role, role: 'PENDING' };
+    }
+    return user;
+  }
+
   async function getUserByEmail(email) {
     if (!isConfigured) {
-      return MOCK_USERS.get(email) || null;
+      const { password: _password, ...user } = MOCK_USERS.get(email) || {};
+      return Object.keys(user).length ? user : null;
     }
 
     try {
@@ -299,7 +401,7 @@ function createAuthService(config = loadConfig()) {
         attributes[attr.Name] = attr.Value;
       });
 
-      return {
+      const user = {
         id: result.Username,
         email: attributes.email,
         name: attributes.name,
@@ -310,6 +412,7 @@ function createAuthService(config = loadConfig()) {
         createdAt: result.UserCreateDate,
         lastModified: result.UserLastModifiedDate,
       };
+      return applyPending(user, await resolveGroups(email));
     } catch (error) {
       if (error.name === 'UserNotFoundException') {
         return null;
@@ -322,7 +425,8 @@ function createAuthService(config = loadConfig()) {
     if (!isConfigured) {
       for (const user of MOCK_USERS.values()) {
         if (user.id === userId || user.email === userId) {
-          return user;
+          const { password: _password, ...safe } = user;
+          return safe;
         }
       }
       return null;
@@ -339,7 +443,7 @@ function createAuthService(config = loadConfig()) {
         attributes[attr.Name] = attr.Value;
       });
 
-      return {
+      const user = {
         id: result.Username,
         email: attributes.email,
         name: attributes.name,
@@ -350,6 +454,7 @@ function createAuthService(config = loadConfig()) {
         createdAt: result.UserCreateDate,
         lastModified: result.UserLastModifiedDate,
       };
+      return applyPending(user, await resolveGroups(userId));
     } catch (error) {
       if (error.name === 'UserNotFoundException') {
         return null;
@@ -359,14 +464,16 @@ function createAuthService(config = loadConfig()) {
   }
 
   async function updateUserProfile(userId, updates) {
+    // NOTE: role changes are intentionally unsupported here — roles change
+    // only via assignRole (GOVT). Any `role` key in updates is ignored.
     if (!isConfigured) {
       for (const [email, user] of MOCK_USERS.entries()) {
         if (user.id === userId || user.email === userId) {
           if (updates.name) user.name = updates.name;
           if (updates.organizationId) user.organizationId = updates.organizationId;
-          if (updates.role) user.role = updates.role;
           user.lastModified = new Date().toISOString();
-          return user;
+          const { password: _password, ...safe } = user;
+          return safe;
         }
       }
       throw notFound('User not found');
@@ -379,9 +486,6 @@ function createAuthService(config = loadConfig()) {
     }
     if (updates.organizationId) {
       userAttributes.push({ Name: 'custom:orgId', Value: updates.organizationId });
-    }
-    if (updates.role) {
-      userAttributes.push({ Name: 'custom:role', Value: updates.role });
     }
 
     if (userAttributes.length > 0) {
@@ -520,6 +624,7 @@ function createAuthService(config = loadConfig()) {
     deleteUser,
     listUsers,
     assignRole,
+    createInvite,
   };
 }
 

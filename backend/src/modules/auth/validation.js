@@ -41,6 +41,11 @@ const resendVerificationSchema = z.object({
   email: emailSchema,
 });
 
+const inviteSchema = z.object({
+  email: emailSchema,
+  role: z.enum(['FIELD', 'GOVT']),
+});
+
 module.exports = {
   registerSchema,
   loginSchema,
@@ -49,4 +54,5 @@ module.exports = {
   resetPasswordSchema,
   refreshTokenSchema,
   resendVerificationSchema,
+  inviteSchema,
 };

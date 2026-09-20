@@ -5,6 +5,7 @@ const roles = Object.freeze({
   PUBLIC: 'PUBLIC',
   DONOR: 'DONOR',
   NGO: 'NGO',
+  VENDOR: 'VENDOR',
   FIELD: 'FIELD',
   GOVT: 'GOVT',
   SYSTEM: 'SYSTEM',

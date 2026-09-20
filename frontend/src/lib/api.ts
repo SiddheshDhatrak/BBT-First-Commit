@@ -17,14 +17,14 @@ export const isAgentEnabled = () => AGENT_BASE.length > 0;
 
 /**
  * Frontend role → backend actor role.
- * Vendor has no backend role; NGO is closest (documented demo decision —
- * see README integration section). Field maps 1:1 to FIELD.
+ * Vendor is a first-class backend role (vendor-scoped routes in app.js).
+ * Field maps 1:1 to FIELD.
  */
 export function toBackendRole(role: Role): string {
   switch (role) {
     case "donor": return "DONOR";
-    case "ngo":
-    case "vendor": return "NGO";
+    case "ngo": return "NGO";
+    case "vendor": return "VENDOR";
     case "field": return "FIELD";
     case "auditor":
     case "admin": return "GOVT";
