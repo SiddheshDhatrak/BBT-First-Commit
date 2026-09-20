@@ -141,7 +141,7 @@ class VerificationPipeline {
       Document: { Bytes: fileBuffer },
       FeatureTypes: ['FORMS'],
     });
-    const checks = this.validateProof(proof, distribution, expense, textractResult, metadata);
+    const checks = this.validateProof(proof, distribution, expense, textractResult, metadata, proofId);
     const allPassed = checks.every(c => c.result === 'PASS');
     const status = allPassed ? 'VERIFIED' : 'FLAGGED';
     this.repo.update('proofs', proofId, { verificationStatus: status, s3Key: key });
@@ -160,7 +160,7 @@ class VerificationPipeline {
     }
     return { status, checks, s3Key: key };
   }
-  validateProof(proof, distribution, expense, textractResult, metadata) {
+  validateProof(proof, distribution, expense, textractResult, metadata, proofId) {
     const checks = [];
     const policy = this.getPolicyForExpense(expense);
     const bounds = policy.allowedBounds;
