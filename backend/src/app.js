@@ -196,6 +196,9 @@ function createApp({ repository, config } = {}) {
       body: relief.createDisaster(body, actor),
     }))
   );
+  router.add('GET', '/api/v1/disasters', async () => ({
+    body: repo.list('disasters'),
+  }));
   router.add(
     'POST',
     '/api/v1/campaigns',
@@ -204,6 +207,9 @@ function createApp({ repository, config } = {}) {
       body: relief.createCampaign(body),
     }))
   );
+  router.add('GET', '/api/v1/campaigns', async () => ({
+    body: repo.list('campaigns'),
+  }));
   router.add(
     'POST',
     '/api/v1/campaigns/:id/donations',
@@ -212,6 +218,12 @@ function createApp({ repository, config } = {}) {
       body: relief.donate(params.id, body, actor),
     }))
   );
+  router.add('GET', '/api/v1/donations', withRole([roles.DONOR, roles.GOVT], ({ actor }) => {
+    const all = repo.list('donations');
+    const rows = Array.isArray(all) ? all : [];
+    if (actor.role === 'GOVT') return { body: rows };
+    return { body: rows.filter(d => d.donorId === actor.id || d.donorEmail === actor.id) };
+  }));
   router.add(
     'POST',
     '/api/v1/fund-allocations',
@@ -235,6 +247,9 @@ function createApp({ repository, config } = {}) {
       body: relief.createOrganization(body),
     }))
   );
+  router.add('GET', '/api/v1/organizations', withRole([roles.NGO, roles.GOVT], () => ({
+    body: repo.list('organizations'),
+  })));
   router.add(
     'POST',
     '/api/v1/programs',
@@ -243,6 +258,9 @@ function createApp({ repository, config } = {}) {
       body: relief.createProgram(body, actor),
     }))
   );
+  router.add('GET', '/api/v1/programs', withRole([roles.NGO, roles.GOVT], () => ({
+    body: repo.list('programs'),
+  })));
   router.add(
     'POST',
     '/api/v1/budgets',
@@ -259,6 +277,9 @@ function createApp({ repository, config } = {}) {
       body: relief.createVendor(body, actor),
     }))
   );
+  router.add('GET', '/api/v1/vendors', withRole([roles.NGO, roles.GOVT], () => ({
+    body: repo.list('vendors'),
+  })));
   router.add(
     'POST',
     '/api/v1/vendors/:id/bank-accounts',

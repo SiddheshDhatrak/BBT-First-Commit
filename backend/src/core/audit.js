@@ -15,7 +15,8 @@ function sha256(value) {
 
 function createAuditService(repo) {
   function append({ entityType, entityId, action, actorId, payload = {} }) {
-    const previous = repo.list('auditLogs').at(-1);
+    const logs = repo.list('auditLogs');
+    const previous = Array.isArray(logs) && logs.length > 0 ? logs[logs.length - 1] : null;
     const event = {
       id: randomUUID(),
       entityType,
