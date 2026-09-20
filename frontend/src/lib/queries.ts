@@ -1,8 +1,6 @@
-// Live-data hooks over src/lib/api.ts with mock-first fallback.
-// Pattern: every hook is `enabled` only when its env URL is set and the
-// caller has a suitable role; components render `data` when present and
-// fall back to src/lib/mock.ts content on disabled/error. This keeps
-// Amplify builds (no env vars) pixel-identical to the mock demo.
+// Live-data hooks over src/lib/api.ts — LIVE ONLY, no mock fallback.
+// Every hook requires VITE_API_URL (backend) or VITE_AGENT_URL (agent).
+// Auth: Cognito access token from localStorage `rahatsetu_access_token`.
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { agent, api, isAgentEnabled, isApiEnabled, type ActorClaims } from "@/lib/api";
@@ -13,14 +11,14 @@ export function useActorClaims(): ActorClaims {
   const role = useUI((s) => s.role);
   const user = useUI((s) => s.user);
   const isAuthenticated = useUI((s) => s.isAuthenticated);
-  
+
   if (!isAuthenticated || !user) {
     return { role, actorId: `${role}-demo` };
   }
-  
-  return { 
-    role, 
-    actorId: user.id ?? user.email ?? `${role}-demo`, 
+
+  return {
+    role,
+    actorId: user.id ?? user.email ?? `${role}-demo`,
     accessToken: user.accessToken,
     orgId: user.organizationId,
   };
@@ -72,16 +70,25 @@ export function parseAgentAnswer(raw: unknown): AgentAnswer {
   const summary =
     (typeof analysis.summary === "string" && analysis.summary) ||
     (typeof r.summary === "string" && r.summary) ||
+    (typeof r.answer === "string" && r.answer) ||
     "Analysis received.";
   const cites: string[] = [];
   for (const key of ["evidence", "risk_factors", "recommended_review_checks", "cites", "citations"]) {
     const v = (analysis as Record<string, unknown>)[key] ?? (r as Record<string, unknown>)[key];
-    if (Array.isArray(v)) for (const item of v.slice(0, 6)) cites.push(String(item).slice(0, 60));
+    if (Array.isArray(v)) for (const item of v.slice(0, 6)) cites.push(String(item).slice(0, 120));
   }
   return { summary, cites };
 }
 
 const LIVE = { retry: false, staleTime: 30_000, gcTime: 5 * 60_000 } as const;
+
+function signedIn(): boolean {
+  try {
+    return useUI.getState().isAuthenticated;
+  } catch {
+    return false;
+  }
+}
 
 export function usePublicMetrics() {
   return useQuery({
@@ -92,13 +99,69 @@ export function usePublicMetrics() {
   });
 }
 
+export function useGovernmentDashboard() {
+  const claims = useActorClaims();
+  const govt = claims.role === "auditor" || claims.role === "admin";
+  return useQuery({
+    queryKey: ["live", "government-dashboard"],
+    queryFn: () => api.governmentDashboard<unknown>(claims),
+    enabled: isApiEnabled() && govt && signedIn(),
+    ...LIVE,
+  });
+}
+
+export function useDisasters() {
+  const claims = useActorClaims();
+  return useQuery({
+    queryKey: ["live", "disasters"],
+    queryFn: () => api.listDisasters<unknown[]>(claims),
+    // Public endpoint: no sign-in required.
+    enabled: isApiEnabled(),
+    ...LIVE,
+  });
+}
+
+export function useCampaigns() {
+  const claims = useActorClaims();
+  return useQuery({
+    queryKey: ["live", "campaigns"],
+    queryFn: () => api.listCampaigns<unknown[]>(claims),
+    // Public endpoint: no sign-in required.
+    enabled: isApiEnabled(),
+    ...LIVE,
+  });
+}
+
+export function useDonations() {
+  const claims = useActorClaims();
+  return useQuery({
+    queryKey: ["live", "donations", claims.actorId],
+    queryFn: () => api.listDonations<unknown[]>(claims),
+    enabled: isApiEnabled() && signedIn(),
+    ...LIVE,
+  });
+}
+
 export function useDonationLineage(donationId: string | undefined) {
   const claims = useActorClaims();
   return useQuery({
     queryKey: ["live", "lineage", donationId, claims.actorId],
     queryFn: () => api.lineage<LineagePayload>(donationId as string, claims),
-    enabled: isApiEnabled() && !!donationId,
+    enabled: isApiEnabled() && !!donationId && signedIn(),
     ...LIVE,
+  });
+}
+
+export function useDonate() {
+  const claims = useActorClaims();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ campaignId, amount }: { campaignId: string; amount: number }) =>
+      api.donate<unknown>(campaignId, { amount }, claims),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["live", "donations"] });
+      qc.invalidateQueries({ queryKey: ["live", "public-dashboard"] });
+    },
   });
 }
 
@@ -109,7 +172,7 @@ export function useFraudAlerts() {
   return useQuery({
     queryKey: ["live", "fraud-alerts"],
     queryFn: () => api.fraudAlerts<LiveAlert[]>(claims),
-    enabled: isApiEnabled() && govt,
+    enabled: isApiEnabled() && govt && signedIn(),
     ...LIVE,
   });
 }
@@ -120,12 +183,95 @@ export function useResolveAlert() {
   return useMutation({
     mutationFn: ({ id, status, reason }: { id: string; status: string; reason: string }) =>
       api.resolveAlert<LiveAlert>(id, { status, reason }, claims),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["live", "fraud-alerts"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["live", "fraud-alerts"] });
+      qc.invalidateQueries({ queryKey: ["live", "government-dashboard"] });
+    },
+  });
+}
+
+export function useOrganizations() {
+  const claims = useActorClaims();
+  return useQuery({
+    queryKey: ["live", "organizations"],
+    queryFn: () => api.listOrganizations<unknown[]>(claims),
+    enabled: isApiEnabled() && signedIn(),
+    ...LIVE,
+  });
+}
+
+export function usePrograms() {
+  const claims = useActorClaims();
+  return useQuery({
+    queryKey: ["live", "programs"],
+    queryFn: () => api.listPrograms<unknown[]>(claims),
+    enabled: isApiEnabled() && signedIn(),
+    ...LIVE,
+  });
+}
+
+export function useVendors() {
+  const claims = useActorClaims();
+  return useQuery({
+    queryKey: ["live", "vendors"],
+    queryFn: () => api.listVendors<unknown[]>(claims),
+    enabled: isApiEnabled() && signedIn(),
+    ...LIVE,
+  });
+}
+
+export function useCreateOrganization() {
+  const claims = useActorClaims();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: unknown) => api.createOrganization<unknown>(body, claims),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["live", "organizations"] }),
+  });
+}
+
+export function useCreateProgram() {
+  const claims = useActorClaims();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: unknown) => api.createProgram<unknown>(body, claims),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["live", "programs"] }),
+  });
+}
+
+export function useCreateVendor() {
+  const claims = useActorClaims();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: unknown) => api.createVendor<unknown>(body, claims),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["live", "vendors"] }),
+  });
+}
+
+export function useUploadInvoice() {
+  const claims = useActorClaims();
+  return useMutation({
+    mutationFn: (body: unknown) => api.uploadInvoice<unknown>(body, claims),
+  });
+}
+
+export function usePayExpense() {
+  const claims = useActorClaims();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ body, key }: { body: unknown; key: string }) =>
+      api.payExpense<unknown>(body, claims, key),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["live", "government-dashboard"] });
+      qc.invalidateQueries({ queryKey: ["live", "public-dashboard"] });
+    },
   });
 }
 
 export function useAgentAsk() {
   return useMutation({
-    mutationFn: (question: string) => agent.aiQuery<unknown>({ question }).then(parseAgentAnswer),
+    mutationFn: (question: string) => {
+      if (!isAgentEnabled()) throw new Error("AI agent is not configured: set VITE_AGENT_URL.");
+      return agent.aiQuery<unknown>({ question }).then(parseAgentAnswer);
+    },
   });
 }

@@ -2,15 +2,15 @@ import { isAgentEnabled, isApiEnabled } from "@/lib/api";
 import { usePublicMetrics } from "@/lib/queries";
 
 /**
- * Single connection indicator for the header.
- * grey = mock mode (no env URLs) · amber = configured but unreachable ·
- * green = live backend data. Agent state is folded into the tooltip.
+ * Single connection indicator for the header — LIVE ONLY.
+ * green = live backend data · amber = configured but unreachable/error ·
+ * red = backend not configured (VITE_API_URL missing). No mock state.
  */
 export function ConnectionDot() {
   const live = usePublicMetrics();
   const enabled = isApiEnabled();
-  const state: "mock" | "connecting" | "live" = !enabled
-    ? "mock"
+  const state: "missing" | "connecting" | "live" = !enabled
+    ? "missing"
     : live.data
       ? "live"
       : "connecting";
@@ -19,13 +19,13 @@ export function ConnectionDot() {
       ? "var(--risk-low)"
       : state === "connecting"
         ? "var(--risk-med)"
-        : "var(--text-muted)";
+        : "var(--risk-high)";
   const title =
     state === "live"
-      ? `Connected to live backend${isAgentEnabled() ? " + AI agent" : " (agent: canned prompts)"}`
+      ? `Connected to live backend${isAgentEnabled() ? " + AI agent" : " (agent not configured)"}`
       : state === "connecting"
-        ? "Backend configured but unreachable — showing synthetic data"
-        : "Synthetic demo data — set VITE_API_URL to go live";
+        ? "Backend configured but unreachable — check API URL, CORS, and Cognito token"
+        : "Backend not configured — set VITE_API_URL";
   return (
     <span
       role="status"

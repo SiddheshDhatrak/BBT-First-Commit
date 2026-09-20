@@ -1,82 +1,166 @@
-import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
-import { motion } from "motion/react";
-import { ArrowUpRight, FileUp, Plus, UploadCloud } from "lucide-react";
-import { alerts, ngos } from "@/lib/mock";
-import { formatINR } from "@/lib/format";
+import { useEffect, useState } from "react";
+import { Link, useParams } from "react-router-dom";
+import { ArrowUpRight, Plus, UploadCloud } from "lucide-react";
+import { api } from "@/lib/api";
+import {
+  useActorClaims,
+  useCampaigns,
+  useCreateProgram,
+  useCreateVendor,
+  useOrganizations,
+  usePrograms,
+  useUploadInvoice,
+  useVendors,
+} from "@/lib/queries";
 import { PageHeader } from "@/components/composite/Chrome";
-import { BudgetProgressBar, PipelineStepper, PIPELINE_STEPS, TrustScoreRing } from "@/components/composite/Viz";
-import { EvidenceCard, RiskBadge, SignalBanner } from "@/components/composite/Risk";
+import { PipelineStepper } from "@/components/composite/Viz";
 import { CountUp } from "@/components/luxe/CountUp";
 import { Reveal, Stagger, StaggerItem } from "@/components/luxe/Reveal";
 import { shortINR } from "@/routes/Public";
 
+interface Org { id: string; name: string }
+interface Program { id: string; name: string; organizationId?: string; campaignId?: string; status?: string }
+interface Vendor { id: string; name: string; status?: string }
+interface Campaign { id: string; name: string }
+
 export function OrgDashboard() {
+  const programsQ = usePrograms();
+  const vendorsQ = useVendors();
+  const orgsQ = useOrganizations();
+  const programs = ((programsQ.data ?? []) as Program[]);
+  const vendors = ((vendorsQ.data ?? []) as Vendor[]);
+  const orgs = ((orgsQ.data ?? []) as Org[]);
+  const pending = programsQ.isPending || vendorsQ.isPending || orgsQ.isPending;
+  const failed = programsQ.isError || vendorsQ.isError || orgsQ.isError;
   return (
     <div>
-      <PageHeader eyebrow="NGO portal" title="Org Dashboard" sub="Allocations, budget use and open alerts — the morning briefing." />
-      <Stagger className="grid gap-4 md:grid-cols-3">
-        {[
-          ["Allocated", 12000000, "Across 5 programs"],
-          ["Utilised", 8400000, "70% of allocation"],
-          ["Open alerts", `${alerts.length}`, "2 need response"],
-        ].map(([k, v, hint]) => (
-          <StaggerItem key={k as string}>
-            <div className="rs-card p-6">
-              <p className="eyebrow !text-[10px]">{k}</p>
-              <p className="kpi mt-2 text-[32px] font-semibold leading-none">
-                {typeof v === "number" ? <CountUp to={v} format={(x) => shortINR(x)} /> : v}
-              </p>
-              <p className="mt-1.5 text-[13px]" style={{ color: "var(--text-muted)" }}>{hint}</p>
+      <PageHeader eyebrow="NGO portal" title="Org Dashboard" sub="Live programs, vendors and organisations — the morning briefing." />
+      {pending ? (
+        <div className="rs-card p-8 text-center text-sm" style={{ color: "var(--text-secondary)" }} aria-busy="true">Loading live ledger…</div>
+      ) : failed ? (
+        <div className="rs-card p-8 text-center text-sm font-bold" style={{ color: "var(--risk-high)" }} role="alert">Ledger unreachable — check sign-in and backend connection.</div>
+      ) : (
+        <>
+          <Stagger className="grid gap-4 md:grid-cols-3">
+            {[
+              ["Programs", programs.length, "Live on ledger"],
+              ["Vendors", vendors.length, "Onboarded"],
+              ["Organisations", orgs.length, "Visible to you"],
+            ].map(([k, v, hint]) => (
+              <StaggerItem key={k as string}>
+                <div className="rs-card p-6">
+                  <p className="eyebrow !text-[10px]">{k}</p>
+                  <p className="kpi mt-2 text-[32px] font-semibold leading-none">
+                    <CountUp to={v as number} format={(x) => String(Math.round(x))} />
+                  </p>
+                  <p className="mt-1.5 text-[13px]" style={{ color: "var(--text-muted)" }}>{hint}</p>
+                </div>
+              </StaggerItem>
+            ))}
+          </Stagger>
+          <Reveal className="mt-4">
+            <div className="rs-card space-y-3 p-6 md:p-8">
+              <div className="flex flex-wrap items-end justify-between gap-2">
+                <h2 className="text-[22px]">Live programs</h2>
+                <Link to="/ngo/programs" className="text-[13px] font-extrabold">Manage programs <ArrowUpRight size={13} aria-hidden className="inline" /></Link>
+              </div>
+              {programs.length === 0 ? (
+                <p className="text-sm" style={{ color: "var(--text-secondary)" }}>No programs yet — create the first one below.</p>
+              ) : (
+                programs.slice(0, 5).map((p) => (
+                  <div key={p.id} className="rs-inset flex items-center gap-3 p-4 text-sm font-bold">
+                    {p.name}
+                    <span className="mono ml-auto text-[11px]" style={{ color: "var(--text-muted)" }}>{p.status ?? "ACTIVE"}</span>
+                  </div>
+                ))
+              )}
             </div>
-          </StaggerItem>
-        ))}
-      </Stagger>
-      <Reveal className="mt-4">
-        <div className="rs-card space-y-5 p-6 md:p-8">
-          <div className="flex flex-wrap items-end justify-between gap-2">
-            <h2 className="text-[22px]">Budget utilisation by category</h2>
-            <Link to="/ngo/programs" className="text-[13px] font-extrabold">Manage programs <ArrowUpRight size={13} aria-hidden className="inline" /></Link>
-          </div>
-          <BudgetProgressBar label="Food" used={3200000} cap={4000000} />
-          <BudgetProgressBar label="Medical" used={2800000} cap={3000000} />
-          <BudgetProgressBar label="Shelter" used={1900000} cap={2500000} />
-        </div>
-      </Reveal>
+          </Reveal>
+        </>
+      )}
     </div>
   );
 }
 
 export function Programs() {
-  const rows = [
-    ["Flood Food Relief", "Assam Floods 2026", 4000000, 3200000],
-    ["Emergency Medical", "Assam Floods 2026", 3000000, 2800000],
-  ] as const;
+  const programsQ = usePrograms();
+  const orgsQ = useOrganizations();
+  const campaignsQ = useCampaigns();
+  const programs = ((programsQ.data ?? []) as Program[]);
+  const orgs = ((orgsQ.data ?? []) as Org[]);
+  const campaigns = ((campaignsQ.data ?? []) as Campaign[]);
+  const create = useCreateProgram();
+  const [orgId, setOrgId] = useState("");
+  const [campaignId, setCampaignId] = useState("");
+  const [name, setName] = useState("");
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setMsg(null);
+    setErr(null);
+    try {
+      const created = await create.mutateAsync({ organizationId: orgId || orgs[0]?.id, campaignId: campaignId || campaigns[0]?.id, name: name.trim() });
+      setMsg(`Program created · ${(created as { id?: string })?.id ?? "recorded"}`);
+      setName("");
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Create failed.");
+    }
+  };
+
   return (
     <div>
-      <PageHeader eyebrow="NGO portal" title="Programs" sub="CRUD tied to campaigns, with per-category caps." action={<button type="button" className="rs-btn-primary rs-btn-sm"><Plus size={15} aria-hidden /> New program</button>} />
+      <PageHeader eyebrow="NGO portal" title="Programs" sub="Live programs tied to campaigns. Create new ones against the ledger." />
+      <Reveal>
+        <form onSubmit={submit} className="rs-card mb-4 grid gap-3 p-5 md:grid-cols-[1fr_1fr_2fr_auto] md:p-6">
+          <label className="block text-sm font-bold">Organisation
+            <select value={orgId} onChange={(e) => setOrgId(e.target.value)} className="rs-input mt-2" aria-label="Organisation">
+              {orgs.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+            </select>
+          </label>
+          <label className="block text-sm font-bold">Campaign
+            <select value={campaignId} onChange={(e) => setCampaignId(e.target.value)} className="rs-input mt-2" aria-label="Campaign">
+              {campaigns.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </label>
+          <label className="block text-sm font-bold">Program name
+            <input value={name} onChange={(e) => setName(e.target.value)} required minLength={2} className="rs-input mt-2" placeholder="Emergency Food Kits" />
+          </label>
+          <div className="flex items-end">
+            <button type="submit" disabled={create.isPending || orgs.length === 0 || campaigns.length === 0} className="rs-btn-primary rs-btn-sm w-full md:w-auto">
+              <Plus size={15} aria-hidden /> {create.isPending ? "Creating…" : "New program"}
+            </button>
+          </div>
+          {msg && <p role="status" className="text-sm font-bold md:col-span-4" style={{ color: "var(--risk-low)" }}>{msg}</p>}
+          {err && <p role="alert" className="text-sm font-bold md:col-span-4" style={{ color: "var(--risk-high)" }}>{err}</p>}
+        </form>
+      </Reveal>
       <Reveal>
         <div className="rs-card overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="rs-table min-w-[620px]">
-              <caption className="sr-only">Programs with budgets</caption>
-              <thead><tr><th scope="col">Program</th><th scope="col">Campaign</th><th scope="col">Budget</th><th scope="col">Spent</th><th scope="col">Use</th></tr></thead>
-              <tbody>
-                {rows.map((r) => {
-                  const pct = Math.round((r[3] / r[2]) * 100);
-                  return (
-                    <tr key={r[0]}>
-                      <td className="text-[16px] font-semibold">{r[0]}</td>
-                      <td style={{ color: "var(--text-secondary)" }}>{r[1]}</td>
-                      <td className="kpi font-semibold">{formatINR(r[2])}</td>
-                      <td className="kpi font-semibold">{formatINR(r[3])}</td>
-                      <td><span className="mono rounded-full px-2.5 py-1 text-[11px] font-bold" style={{ background: "var(--accent-soft)", color: "var(--accent-600)" }}>{pct}%</span></td>
+          {programsQ.isPending ? (
+            <p className="p-6 text-sm" style={{ color: "var(--text-secondary)" }} aria-busy="true">Loading programs…</p>
+          ) : programsQ.isError ? (
+            <p className="p-6 text-sm font-bold" style={{ color: "var(--risk-high)" }} role="alert">Could not load programs.</p>
+          ) : programs.length === 0 ? (
+            <p className="p-6 text-sm" style={{ color: "var(--text-secondary)" }}>No programs yet.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="rs-table min-w-[620px]">
+                <caption className="sr-only">Live programs</caption>
+                <thead><tr><th scope="col">Program</th><th scope="col">Status</th><th scope="col">ID</th></tr></thead>
+                <tbody>
+                  {programs.map((p) => (
+                    <tr key={p.id}>
+                      <td className="text-[16px] font-semibold">{p.name}</td>
+                      <td style={{ color: "var(--text-secondary)" }}>{p.status ?? "ACTIVE"}</td>
+                      <td className="mono text-xs" style={{ color: "var(--text-muted)" }}>{p.id.slice(0, 12)}…</td>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       </Reveal>
     </div>
@@ -84,184 +168,210 @@ export function Programs() {
 }
 
 export function InvoiceList() {
+  const [lookupId, setLookupId] = useState("");
+  const [result, setResult] = useState<unknown>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const claims = useActorClaims();
+  const lookup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErr(null);
+    setResult(null);
+    setBusy(true);
+    try {
+      setResult(await api.invoiceVerification<unknown>(lookupId.trim(), claims));
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Lookup failed.");
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
     <div>
       <PageHeader eyebrow="NGO portal" title="Invoices" sub="Upload → Extracted → Checked → Scored → Explained → Routed." action={<Link to="/ngo/invoices/upload" className="rs-btn-primary rs-btn-sm"><UploadCloud size={15} aria-hidden /> Upload invoice</Link>} />
       <Reveal>
         <div className="rs-card mb-4 p-5 md:p-6"><PipelineStepper current={4} /></div>
       </Reveal>
-      <Reveal delay={0.05}>
-        <div className="rs-card overflow-x-auto">
-          <table className="rs-table min-w-[640px]">
-            <caption className="sr-only">Invoices with risk signals</caption>
-            <thead><tr><th scope="col">Invoice</th><th scope="col">Vendor</th><th scope="col">Amount</th><th scope="col">Risk</th><th scope="col"><span className="sr-only">Open</span></th></tr></thead>
-            <tbody>
-              {[
-                ["INV-8821", "Sharma Suppliers", 48500, "high"],
-                ["INV-7710", "NorthEast Traders", 66000, "medium"],
-              ].map((r) => (
-                <tr key={r[0] as string}>
-                  <td className="mono font-bold"><Link to={`/ngo/invoices/${r[0]}`}>{r[0]}</Link></td>
-                  <td>{r[1]}</td><td className="kpi text-[15px] font-semibold">{formatINR(r[2] as number)}</td>
-                  <td><RiskBadge severity={r[3] as "high" | "medium"} /></td>
-                  <td className="text-right"><Link to={`/ngo/invoices/${r[0]}`} className="font-extrabold" aria-label={`Open ${r[0]}`}>→</Link></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      <Reveal>
+        <form onSubmit={lookup} className="rs-card flex flex-wrap gap-2.5 p-5">
+          <input value={lookupId} onChange={(e) => setLookupId(e.target.value)} placeholder="Enter invoice UUID to check verification…" aria-label="Invoice ID" className="rs-input min-w-0 flex-1" required />
+          <button type="submit" disabled={busy} className="rs-btn-secondary rs-btn-sm">{busy ? "Checking…" : "Check verification"}</button>
+          {err && <p role="alert" className="w-full text-sm font-bold" style={{ color: "var(--risk-high)" }}>{err}</p>}
+          {result ? <pre className="mono w-full overflow-x-auto rounded-xl border p-4 text-xs" style={{ borderColor: "var(--border-subtle)", background: "var(--bg-surface-alt)" }}>{JSON.stringify(result, null, 2)}</pre> : null}
+        </form>
       </Reveal>
     </div>
   );
 }
 
 export function InvoiceUpload() {
-  const [stage, setStage] = useState(0);
-  const [fileName, setFileName] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [drag, setDrag] = useState(false);
-  const [running, setRunning] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const timer = useRef<number | null>(null);
+  const upload = useUploadInvoice();
+  const [purchaseOrderId, setPurchaseOrderId] = useState("");
+  const [invoiceNumber, setInvoiceNumber] = useState("");
+  const [amount, setAmount] = useState("");
+  const [fileKey, setFileKey] = useState("");
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
 
-  const stop = () => { if (timer.current) { window.clearInterval(timer.current); timer.current = null; } setRunning(false); };
-  useEffect(() => () => stop(), []);
-
-  const acceptFile = (f: File | undefined) => {
-    setError(null);
-    if (!f) return;
-    const okType = /pdf|image/i.test(f.type) || /\.(pdf|png|jpe?g|webp)$/i.test(f.name);
-    if (!okType) { setError("Only PDF or image invoices are accepted in this demo."); return; }
-    if (f.size > 10 * 1024 * 1024) { setError("File is larger than 10 MB."); return; }
-    setFileName(`${f.name} · ${(f.size / 1024).toFixed(0)} KB`);
-    setStage(1);
-    setRunning(true);
-    stop();
-    timer.current = window.setInterval(() => {
-      setStage((s) => {
-        if (s >= PIPELINE_STEPS.length - 1) { stop(); return s; }
-        return s + 1;
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setMsg(null);
+    setErr(null);
+    try {
+      const created = await upload.mutateAsync({
+        purchaseOrderId: purchaseOrderId.trim(),
+        invoiceNumber: invoiceNumber.trim(),
+        amount: Number(amount),
+        fileKey: fileKey.trim(),
       });
-    }, 900);
+      setMsg(`Invoice recorded · ${(created as { id?: string })?.id ?? "see verification lookup"}`);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Upload failed.");
+    }
   };
 
   return (
     <div>
-      <PageHeader eyebrow="NGO portal" title="Upload invoice" sub="Drag-drop PDF/image. Live stepper binds to real pipeline status when backend is ready." />
+      <PageHeader eyebrow="NGO portal" title="Upload invoice" sub="Record invoice metadata against the live ledger. File bytes go to S3 via signed URL (phase 2); fileKey references the stored object." />
       <div className="mx-auto max-w-3xl">
-        <motion.div
-          className="rs-card relative overflow-hidden p-10 text-center md:p-14"
-          animate={drag ? { scale: 1.01, borderColor: "var(--accent-500)" } : { scale: 1 }}
-          style={drag ? { boxShadow: "var(--shadow-3)" } : undefined}
-          onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
-          onDragLeave={() => setDrag(false)}
-          onDrop={(e) => { e.preventDefault(); setDrag(false); acceptFile(e.dataTransfer.files?.[0]); }}
-          onClick={() => inputRef.current?.click()}
-          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); inputRef.current?.click(); } }}
-          role="button" tabIndex={0} aria-label="Upload invoice PDF or image. Activate to browse files."
-        >
-          <div className="absolute left-1/2 top-0 h-32 w-96 -translate-x-1/2 rounded-full blur-3xl" style={{ background: "radial-gradient(circle, rgba(46,124,246,.12), transparent 65%)" }} aria-hidden />
-          <input ref={inputRef} type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" className="sr-only" tabIndex={-1}
-            aria-label="Invoice file" onChange={(e) => acceptFile(e.target.files?.[0])} />
-          <motion.span
-            className="relative mx-auto flex h-16 w-16 items-center justify-center rounded-3xl"
-            style={{ background: "var(--primary-600)", color: "#fff", boxShadow: "var(--shadow-2)" }}
-            animate={drag ? { scale: 1.12, rotate: -6 } : { scale: 1, rotate: 0 }}
-          >
-            <UploadCloud size={28} aria-hidden />
-          </motion.span>
-          <p className="relative mt-5 text-[24px]">{fileName ?? "Drop invoice PDF / image here"}</p>
-          <p className="relative mx-auto mt-2 max-w-md text-sm" style={{ color: "var(--text-secondary)" }}>
-            or <span className="font-extrabold underline underline-offset-2">browse files</span> · PDF, PNG, JPG up to 10 MB · Textract + fraud pipeline runs async.
-          </p>
-          {error && <p role="alert" className="relative mx-auto mt-3 max-w-md rounded-xl border p-3 text-sm font-bold" style={{ color: "var(--risk-high)", borderColor: "color-mix(in srgb, var(--risk-high) 40%, transparent)", background: "color-mix(in srgb, var(--risk-high) 8%, transparent)" }}>{error}</p>}
-          {running && <p className="mono relative mt-3 text-xs" style={{ color: "var(--text-muted)" }} aria-live="polite">Processing… stage {stage + 1} of {PIPELINE_STEPS.length}</p>}
-        </motion.div>
-        <div className="rs-card mt-4 p-5 md:p-6">
-          <PipelineStepper current={stage} />
-          {!running && stage >= PIPELINE_STEPS.length - 1 && (
-            <motion.p initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="mt-3 flex items-center gap-2 rounded-xl p-3 text-sm font-bold" style={{ color: "var(--risk-low)", background: "color-mix(in srgb, var(--risk-low) 9%, transparent)" }}>
-              <FileUp size={16} aria-hidden /> Extraction complete — review low-confidence fields in invoice detail.
-            </motion.p>
-          )}
-        </div>
+        <form onSubmit={submit} className="rs-card space-y-4 p-6 md:p-8">
+          <label className="block text-sm font-bold">Purchase order ID (UUID)<input value={purchaseOrderId} onChange={(e) => setPurchaseOrderId(e.target.value)} required className="rs-input mono mt-2" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" /></label>
+          <label className="block text-sm font-bold">Invoice number<input value={invoiceNumber} onChange={(e) => setInvoiceNumber(e.target.value)} required className="rs-input mt-2" placeholder="INV-2026-0001" /></label>
+          <label className="block text-sm font-bold">Amount (INR)<input value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9]/g, ""))} required inputMode="numeric" className="rs-input mt-2" placeholder="48500" /></label>
+          <label className="block text-sm font-bold">Evidence fileKey (S3 object key)<input value={fileKey} onChange={(e) => setFileKey(e.target.value)} required className="rs-input mono mt-2" placeholder="invoices/2026/INV-2026-0001.pdf" /></label>
+          {msg && <p role="status" className="text-sm font-bold" style={{ color: "var(--risk-low)" }}>{msg}</p>}
+          {err && <p role="alert" className="text-sm font-bold" style={{ color: "var(--risk-high)" }}>{err}</p>}
+          <button type="submit" disabled={upload.isPending} className="rs-btn-primary w-full !min-h-[52px]">{upload.isPending ? "Recording…" : "Record invoice"}</button>
+        </form>
       </div>
     </div>
   );
 }
 
 export function InvoiceDetail() {
-  const a = alerts[0];
+  const { id } = useParams();
+  const claims = useActorClaims();
+  const [result, setResult] = useState<unknown>(null);
+  const [busy, setBusy] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!id) {
+        setBusy(false);
+        setErr("No invoice ID in route.");
+        return;
+      }
+      setBusy(true);
+      setErr(null);
+      try {
+        const data = await api.invoiceVerification<unknown>(id, claims);
+        if (!cancelled) setResult(data);
+      } catch (e) {
+        if (!cancelled) setErr(e instanceof Error ? e.message : "Load failed.");
+      } finally {
+        if (!cancelled) setBusy(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
   return (
     <div>
-      <PageHeader eyebrow="Invoice" title="INV-8821 · Sharma Suppliers" sub="Extracted fields with risk explanation and evidence." />
-      <SignalBanner />
-      <div className="mt-4 grid gap-4 lg:grid-cols-2">
-        <Reveal>
-          <div className="rs-card h-fit overflow-hidden">
-            <div className="h-1" style={{ background: "linear-gradient(90deg,#b3272e,#ecb654)" }} aria-hidden />
-            <div className="p-6">
-              <p className="eyebrow">Extracted dossier</p>
-              <h2 className="mt-1 text-[22px]">Extracted data</h2>
-              <dl className="mt-4 space-y-2.5 text-sm">
-                {[["Vendor", "Sharma Suppliers"], ["Amount", formatINR(48500)], ["GSTIN", "18ABCFS1234F1Z5"], ["Invoice hash", "9f2c…41ab"], ["Risk score", "0.87 · High signal"]].map(([k, v]) => (
-                  <div key={k} className="flex items-center justify-between gap-3 border-b pb-2.5" style={{ borderColor: "var(--border-subtle)" }}>
-                    <dt style={{ color: "var(--text-secondary)" }}>{k}</dt>
-                    <dd className="mono text-[13px] font-bold">{v}</dd>
-                  </div>
-                ))}
-              </dl>
-              <div className="mt-4"><RiskBadge severity="high" withPulse /></div>
-            </div>
-          </div>
-        </Reveal>
-        <div className="space-y-3" aria-live="polite">
-          {a.evidence.map((e, i) => <EvidenceCard key={`${e.source}-${i}`} label={e.label} source={e.source} index={i} />)}
-        </div>
+      <PageHeader eyebrow="Invoice" title={id ? `Invoice ${id.slice(0, 12)}…` : "Invoice"} sub="Live verification record from the backend." />
+      <div className="rs-card p-6">
+        {busy ? (
+          <p className="text-sm" style={{ color: "var(--text-secondary)" }} aria-busy="true">Loading verification…</p>
+        ) : err ? (
+          <p className="text-sm font-bold" style={{ color: "var(--risk-high)" }} role="alert">{err}</p>
+        ) : (
+          <pre className="mono overflow-x-auto rounded-xl border p-4 text-xs" style={{ borderColor: "var(--border-subtle)", background: "var(--bg-surface-alt)" }}>{JSON.stringify(result, null, 2)}</pre>
+        )}
+        <button type="button" onClick={() => window.location.reload()} className="rs-btn-secondary rs-btn-sm mt-4">Refresh</button>
       </div>
     </div>
   );
 }
 
 export function NgoAlerts() {
+  const vendorsQ = useVendors();
+  const create = useCreateVendor();
+  const [name, setName] = useState("");
+  const [gstin, setGstin] = useState("");
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const vendors = ((vendorsQ.data ?? []) as Vendor[]);
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setMsg(null);
+    setErr(null);
+    try {
+      await create.mutateAsync({ name: name.trim(), gstin: gstin.trim().toUpperCase() });
+      setMsg("Vendor submitted for review.");
+      setName("");
+      setGstin("");
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Submit failed.");
+    }
+  };
   return (
     <div>
-      <PageHeader eyebrow="NGO portal" title="My Fraud Alerts" sub="Respond with an explanation or supporting document — concierge handles the rest." />
-      <SignalBanner />
-      <Stagger className="mt-4 space-y-3">
-        {alerts.map((a) => (
-          <StaggerItem key={a.id}>
-            <div className="rs-card flex flex-wrap items-center gap-4 p-5">
-              <RiskBadge severity={a.severity} />
-              <div className="min-w-0 flex-1 basis-56">
-                <p className="text-[16.5px] leading-snug">{a.title}</p>
-                <p className="mono mt-1 text-xs" style={{ color: "var(--text-muted)" }}>{a.id} · {a.entity}</p>
-              </div>
-              <Link to="/ngo/invoices/INV-8821" className="rs-btn-secondary rs-btn-sm">Respond →</Link>
-            </div>
-          </StaggerItem>
-        ))}
-      </Stagger>
+      <PageHeader eyebrow="NGO portal" title="Vendors" sub="Onboard vendors against the live ledger. Fraud investigation detail is auditor-only." />
+      <form onSubmit={submit} className="rs-card mb-4 grid gap-3 p-5 md:grid-cols-[2fr_2fr_auto]">
+        <label className="block text-sm font-bold">Vendor name<input value={name} onChange={(e) => setName(e.target.value)} required className="rs-input mt-2" placeholder="Sharma Suppliers" /></label>
+        <label className="block text-sm font-bold">GSTIN<input value={gstin} onChange={(e) => setGstin(e.target.value)} required className="rs-input mono mt-2" placeholder="18ABCFS1234F1Z5" minLength={15} maxLength={15} /></label>
+        <div className="flex items-end"><button type="submit" disabled={create.isPending} className="rs-btn-primary rs-btn-sm w-full">{create.isPending ? "Submitting…" : "Onboard vendor"}</button></div>
+        {msg && <p role="status" className="text-sm font-bold md:col-span-3" style={{ color: "var(--risk-low)" }}>{msg}</p>}
+        {err && <p role="alert" className="text-sm font-bold md:col-span-3" style={{ color: "var(--risk-high)" }}>{err}</p>}
+      </form>
+      <div className="rs-card overflow-hidden">
+        {vendorsQ.isPending ? (
+          <p className="p-6 text-sm" style={{ color: "var(--text-secondary)" }} aria-busy="true">Loading vendors…</p>
+        ) : vendorsQ.isError ? (
+          <p className="p-6 text-sm font-bold" style={{ color: "var(--risk-high)" }} role="alert">Could not load vendors.</p>
+        ) : vendors.length === 0 ? (
+          <p className="p-6 text-sm" style={{ color: "var(--text-secondary)" }}>No vendors yet.</p>
+        ) : (
+          <table className="rs-table min-w-[600px]">
+            <caption className="sr-only">Live vendors</caption>
+            <thead><tr><th scope="col">Vendor</th><th scope="col">Status</th><th scope="col">ID</th></tr></thead>
+            <tbody>
+              {vendors.map((v) => (
+                <tr key={v.id}><td className="font-bold">{v.name}</td><td style={{ color: "var(--text-secondary)" }}>{v.status ?? "PENDING_REVIEW"}</td><td className="mono text-xs" style={{ color: "var(--text-muted)" }}>{v.id.slice(0, 12)}…</td></tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
     </div>
   );
 }
 
 export function OrgScore() {
-  const n = ngos[0];
+  const programsQ = usePrograms();
+  const vendorsQ = useVendors();
+  const programs = ((programsQ.data ?? []) as Program[]).length;
+  const vendors = ((vendorsQ.data ?? []) as Vendor[]).length;
   return (
     <div>
-      <PageHeader eyebrow="NGO portal" title="Transparency Score" sub="Full breakdown with what to fix — never a bare number." />
-      <div className="grid gap-4 lg:max-w-4xl lg:grid-cols-[1.2fr_.8fr]">
+      <PageHeader eyebrow="NGO portal" title="Ledger Standing" sub="Live counts from the backend. Numeric trust scoring ships with the ML service." />
+      <div className="grid gap-4 lg:max-w-4xl lg:grid-cols-2">
         <Reveal>
           <div className="rs-card h-full p-6 md:p-8">
-            <TrustScoreRing score={n.score} components={n.components} />
+            <p className="eyebrow">Live standing</p>
+            <p className="kpi mt-2 text-[34px] font-extrabold">{programs} programs · {vendors} vendors</p>
+            <p className="mt-2 text-sm" style={{ color: "var(--text-secondary)" }}>
+              Deterministic trust breakdowns (timely reporting, receipt coverage, budget discipline, alert responsiveness) are computed from ledger history. Amounts shown use {shortINR(100000)}-style ledger formatting.
+            </p>
           </div>
         </Reveal>
         <Reveal delay={0.1}>
           <div className="flex h-full flex-col justify-between gap-4 rounded-[22px] border p-6" style={{ borderColor: "color-mix(in srgb, var(--accent-500) 40%, transparent)", background: "linear-gradient(160deg,#101c38,#1d2f5c)", color: "#fff" }}>
             <div>
               <p className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-white/70">Field note</p>
-              <p className="mt-2 text-[22px] leading-snug">Upload 2 pending receipts to lift coverage 26 → 30.</p>
+              <p className="mt-2 text-[22px] leading-snug">Keep invoices verified to lift standing.</p>
             </div>
             <Link to="/ngo/invoices/upload" className="rs-btn-accent rs-btn-sm w-fit">Upload receipts</Link>
           </div>

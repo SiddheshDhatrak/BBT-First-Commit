@@ -2,26 +2,33 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence } from "motion/react";
 import { ArrowUpDown, CheckCircle2, Inbox, MapPin, SearchCheck, Sparkles } from "lucide-react";
-import { alerts, copilotCanned, type Alert as MockAlert } from "@/lib/mock";
-import { formatINR } from "@/lib/format";
-import { agent, isAgentEnabled, isApiEnabled } from "@/lib/api";
-import { parseAgentAnswer, useFraudAlerts, useResolveAlert, type LiveAlert } from "@/lib/queries";
+import { agent, isAgentEnabled } from "@/lib/api";
+import { parseAgentAnswer, useFraudAlerts, useGovernmentDashboard, usePublicMetrics, useResolveAlert, type LiveAlert } from "@/lib/queries";
 import { PageHeader } from "@/components/composite/Chrome";
 import { EvidenceCard, RiskBadge, SignalBanner } from "@/components/composite/Risk";
 import { Reveal, Stagger, StaggerItem } from "@/components/luxe/Reveal";
 import { IsoBars } from "@/components/viz/Depth";
 import { shortINR } from "@/routes/Public";
 
+interface GovExpense { expenseId: string; riskScore?: { total?: number }; delivery?: { status?: string }; alerts?: { id: string }[] }
+
 export function CommandCentre() {
-  const cards = [
-    ["Open investigations", "18", "3 high signal"],
-    ["High-risk vendors", "4", "1 shared payee cluster"],
-    ["Pending approvals", "7", "2 KYC · 5 budgets"],
-    ["Spend tracked", shortINR(57500000), "Across 3 disasters"],
-  ] as const;
+  const alertsQ = useFraudAlerts();
+  const govQ = useGovernmentDashboard();
+  const metricsQ = usePublicMetrics();
+  const alerts = ((alertsQ.data ?? []) as LiveAlert[]);
+  const open = alerts.filter((a) => (a.status ?? "OPEN") === "OPEN" || (a.status ?? "") === "INVESTIGATING");
+  const high = alerts.filter((a) => (a.severity ?? "").toUpperCase() === "HIGH");
+  const expenses = (((govQ.data as { expenses?: GovExpense[] } | undefined)?.expenses) ?? []);
+  const cards: [string, string, string][] = [
+    ["Open investigations", alertsQ.isPending ? "…" : String(open.length), alertsQ.isError ? "ledger unreachable" : `${high.length} high signal`],
+    ["Expenses tracked", govQ.isPending ? "…" : String(expenses.length), govQ.isError ? "auditor sign-in required" : "live ledger"],
+    ["Deliveries verified", metricsQ.data ? String(metricsQ.data.deliveryVerifiedExpenses) : "…", "live ledger"],
+    ["Spend tracked", metricsQ.data ? shortINR(metricsQ.data.totalDonated) : "…", "all campaigns"],
+  ];
   return (
     <div>
-      <PageHeader eyebrow="Auditor console" title="Command Centre" sub="Control-room view. Sign in as auditor opens dark — override anytime." />
+      <PageHeader eyebrow="Auditor console" title="Command Centre" sub="Live control-room view. Sign in as auditor opens dark — override anytime." />
       <Stagger className="grid grid-cols-2 gap-4 xl:grid-cols-4">
         {cards.map(([k, v, hint]) => (
           <StaggerItem key={k}>
@@ -40,10 +47,13 @@ export function CommandCentre() {
             <MapPin size={21} aria-hidden />
           </span>
           <p className="min-w-0 flex-1 basis-60 text-sm leading-6" style={{ color: "var(--text-secondary)" }}>
-            <strong className=" text-[16px]" style={{ color: "var(--text-primary)" }}>Kamrup needs a look: </strong>
-            spend is 2.1× the district reference with 2 duplicate-amount flags.
+            {open.length === 0 ? (
+              <><strong className=" text-[16px]" style={{ color: "var(--text-primary)" }}>Queue is clear. </strong> No open investigations on the live ledger.</>
+            ) : (
+              <><strong className=" text-[16px]" style={{ color: "var(--text-primary)" }}>{open.length} open investigation{open.length === 1 ? "" : "s"}. </strong> Start with the highest risk score in the queue.</>
+            )}
           </p>
-          <Link to="/auditor/geo" className="rs-btn-secondary rs-btn-sm">Open district view →</Link>
+          <Link to="/auditor/queue" className="rs-btn-secondary rs-btn-sm">Open queue →</Link>
         </div>
       </Reveal>
     </div>
@@ -54,10 +64,6 @@ export function InvestigationQueue() {
   const [params, setParams] = useSearchParams();
   const [q, setQ] = useState(params.get("q") ?? "");
   const [sortDesc, setSortDesc] = useState(true);
-  const rows = useMemo(() => {
-    const f = alerts.filter((a) => (a.title + a.entity + a.id + a.disaster).toLowerCase().includes(q.toLowerCase()));
-    return [...f].sort((a, b) => (sortDesc ? b.score - a.score : a.score - b.score));
-  }, [q, sortDesc]);
 
   useEffect(() => {
     setParams(q ? { q } : {}, { replace: true });
@@ -67,10 +73,13 @@ export function InvestigationQueue() {
   const resolveAlert = useResolveAlert();
   const [resolvingId, setResolvingId] = useState<string | null>(null);
   const [liveNote, setLiveNote] = useState<string | null>(null);
-  const liveRows = (liveAlerts.data ?? []).filter((a) =>
-    `${a.entityType ?? ""} ${a.entityId ?? ""} ${a.id} ${a.status ?? ""}`.toLowerCase().includes(q.toLowerCase()),
-  );
-  const liveOk = isApiEnabled() && !!liveAlerts.data && !liveAlerts.isError;
+  const rows = useMemo(() => {
+    const all = ((liveAlerts.data ?? []) as LiveAlert[]);
+    const f = all.filter((a) =>
+      `${a.entityType ?? ""} ${a.entityId ?? ""} ${a.id} ${a.status ?? ""} ${a.severity ?? ""}`.toLowerCase().includes(q.toLowerCase()),
+    );
+    return [...f].sort((a, b) => (sortDesc ? (b.riskScore ?? 0) - (a.riskScore ?? 0) : (a.riskScore ?? 0) - (b.riskScore ?? 0)));
+  }, [liveAlerts.data, q, sortDesc]);
 
   const resolveLive = async (a: LiveAlert) => {
     setResolvingId(a.id);
@@ -85,31 +94,37 @@ export function InvestigationQueue() {
     }
   };
 
-  const sevOf = (s?: string): MockAlert["severity"] =>
+  const sevOf = (s?: string): "high" | "medium" | "low" =>
     s === "HIGH" ? "high" : s === "MEDIUM" ? "medium" : "low";
 
   return (
     <div>
-      <PageHeader eyebrow="Auditor console" title="Investigation Queue" sub="Sorted by risk score. Every row shows a badge plus one-line evidence." />
+      <PageHeader eyebrow="Auditor console" title="Investigation Queue" sub="Live backend alerts sorted by risk score. Every row resolves with an audit entry." />
       <SignalBanner />
-      {liveOk && (
+      {liveAlerts.isPending ? (
+        <div className="rs-card mt-4 p-6 text-sm" style={{ color: "var(--text-secondary)" }} aria-busy="true">Loading live alerts…</div>
+      ) : liveAlerts.isError ? (
+        <div className="rs-card mt-4 p-6 text-sm font-bold" style={{ color: "var(--risk-high)" }} role="alert">Could not load alerts — auditor sign-in and backend connection required.</div>
+      ) : (
         <Reveal className="mt-4">
           <div className="rs-card overflow-x-auto">
             <table className="rs-table min-w-[760px]">
-              <caption className="mono px-5 pt-4 text-left text-[11px] tracking-[0.12em]" style={{ color: "var(--text-muted)" }}>LIVE BACKEND ALERTS · {liveRows.length} OPEN</caption>
+              <caption className="mono px-5 pt-4 text-left text-[11px] tracking-[0.12em]" style={{ color: "var(--text-muted)" }}>LIVE BACKEND ALERTS · {rows.length} SHOWN</caption>
               <thead><tr><th scope="col">Alert</th><th scope="col">Risk</th><th scope="col">Status</th><th scope="col"><span className="sr-only">Action</span></th></tr></thead>
               <tbody>
-                {liveRows.map((a) => (
-                  <tr key={a.id}>
-                    <td><span className="text-[15px] font-semibold">{a.entityType ?? "Alert"} · {(a.entityId ?? a.id).slice(0, 18)}</span><p className="mono mt-1 text-xs" style={{ color: "var(--text-muted)" }}>{a.id}</p></td>
-                    <td><RiskBadge severity={sevOf(a.severity)} /><p className="kpi mono mt-1.5 text-xs" style={{ color: "var(--text-muted)" }}>{((a.riskScore ?? 0) / 100).toFixed(2)}</p></td>
-                    <td className="mono text-[12px]" style={{ color: "var(--text-secondary)" }}>{a.status ?? "OPEN"}</td>
-                    <td className="text-right"><button type="button" disabled={resolvingId === a.id} onClick={() => resolveLive(a)} className="rs-btn-secondary rs-btn-sm">{resolvingId === a.id ? "Resolving…" : "Resolve"}</button></td>
-                  </tr>
-                ))}
+                <AnimatePresence initial={false}>
+                  {rows.map((a) => (
+                    <motion.tr key={a.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                      <td><Link to={`/auditor/alerts/${a.id}`} className=" text-[15px] font-semibold">{a.entityType ?? "Alert"} · {(a.entityId ?? a.id).slice(0, 18)}</Link><p className="mono mt-1 text-xs" style={{ color: "var(--text-muted)" }}>{a.id}</p></td>
+                      <td><RiskBadge severity={sevOf(a.severity)} /><p className="kpi mono mt-1.5 text-xs" style={{ color: "var(--text-muted)" }}>{((a.riskScore ?? 0) / 100).toFixed(2)}</p></td>
+                      <td className="mono text-[12px]" style={{ color: "var(--text-secondary)" }}>{a.status ?? "OPEN"}</td>
+                      <td className="text-right"><button type="button" disabled={resolvingId === a.id} onClick={() => resolveLive(a)} className="rs-btn-secondary rs-btn-sm">{resolvingId === a.id ? "Resolving…" : "Resolve"}</button></td>
+                    </motion.tr>
+                  ))}
+                </AnimatePresence>
               </tbody>
             </table>
-            {liveRows.length === 0 && <p className="px-5 pb-4 text-sm" style={{ color: "var(--text-secondary)" }}>No live alerts match.</p>}
+            {rows.length === 0 && <p className="px-5 pb-4 text-sm" style={{ color: "var(--text-secondary)" }}>No live alerts match.</p>}
           </div>
         </Reveal>
       )}
@@ -117,33 +132,13 @@ export function InvestigationQueue() {
       <div className="mt-4 flex flex-wrap gap-2.5">
         <div className="rs-input flex max-w-md flex-1 items-center gap-2 !rounded-full !py-3">
           <SearchCheck size={16} aria-hidden style={{ color: "var(--text-muted)" }} />
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter by vendor, rule, ID, disaster…" aria-label="Filter investigations" className="w-full bg-transparent text-sm font-medium outline-none" />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter by entity, ID, status…" aria-label="Filter investigations" className="w-full bg-transparent text-sm font-medium outline-none" />
         </div>
         <button type="button" onClick={() => setSortDesc((s) => !s)} className="rs-btn-secondary rs-btn-sm !rounded-full" aria-label={sortDesc ? "Sort lowest risk first" : "Sort highest risk first"}>
           <ArrowUpDown size={15} aria-hidden /> Score {sortDesc ? "↓" : "↑"}
         </button>
       </div>
-      <Reveal className="mt-4">
-        <div className="rs-card overflow-x-auto">
-          <table className="rs-table min-w-[760px]">
-            <caption className="sr-only">Investigations sorted by risk score</caption>
-            <thead><tr><th scope="col">Alert</th><th scope="col">Entity</th><th scope="col">Risk</th><th scope="col">Top evidence</th></tr></thead>
-            <tbody>
-              <AnimatePresence initial={false}>
-                {rows.map((a) => (
-                  <motion.tr key={a.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                    <td><Link to={`/auditor/alerts/${a.id}`} className=" text-[15px] font-semibold">{a.title}</Link><p className="mono mt-1 text-xs" style={{ color: "var(--text-muted)" }}>{a.id} · {a.disaster} · {a.date}</p></td>
-                    <td style={{ color: "var(--text-secondary)" }}>{a.entity}</td>
-                    <td><RiskBadge severity={a.severity} /><p className="kpi mono mt-1.5 text-xs" style={{ color: "var(--text-muted)" }}>{a.score.toFixed(2)}</p></td>
-                    <td className="max-w-[280px] text-[13px] leading-5" style={{ color: "var(--text-secondary)" }}>{a.evidence[0].label}</td>
-                  </motion.tr>
-                ))}
-              </AnimatePresence>
-            </tbody>
-          </table>
-        </div>
-      </Reveal>
-      {rows.length === 0 && (
+      {rows.length === 0 && !liveAlerts.isPending && (
         <div className="rs-card mt-4 flex items-center gap-4 p-7">
           <span className="flex h-12 w-12 items-center justify-center rounded-2xl" style={{ background: "color-mix(in srgb, var(--risk-low) 12%, transparent)", color: "var(--risk-low)" }}>
             <Inbox size={22} aria-hidden />
@@ -157,44 +152,56 @@ export function InvestigationQueue() {
 
 export function FraudDetail() {
   const { id } = useParams();
-  const a = alerts.find((x) => x.id === id) ?? alerts[0];
+  const alertsQ = useFraudAlerts();
+  const alerts = ((alertsQ.data ?? []) as LiveAlert[]);
+  const a = alerts.find((x) => x.id === id);
   const [reason, setReason] = useState("");
   const [done, setDone] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
-  // Mock IDs look like ALT-1042; anything else is treated as a live backend UUID.
-  const isLiveId = !!id && !id.startsWith("ALT-");
   const resolveMutation = useResolveAlert();
   const decide = async (status: "RESOLVED" | "ESCALATED") => {
-    if (isLiveId && isApiEnabled() && id) {
-      setWorking(true);
-      try {
-        await resolveMutation.mutateAsync({ id, status, reason });
-        setDone(`${status === "RESOLVED" ? "Resolved" : "Escalated"} live alert as “${reason}”. Logged to hash-chained audit trail.`);
-      } catch (e) {
-        setDone(e instanceof Error ? `Live update failed: ${e.message}` : "Live update failed.");
-      } finally {
-        setWorking(false);
-      }
-      return;
+    if (!id) return;
+    setWorking(true);
+    try {
+      await resolveMutation.mutateAsync({ id, status, reason });
+      setDone(`${status === "RESOLVED" ? "Resolved" : "Escalated"} live alert. Logged to hash-chained audit trail.`);
+    } catch (e) {
+      setDone(e instanceof Error ? `Live update failed: ${e.message}` : "Live update failed.");
+    } finally {
+      setWorking(false);
     }
-    setDone(`${status === "RESOLVED" ? "Resolved" : "Escalated"} as “${reason}”. Logged to hash-chained audit trail.`);
   };
+  if (alertsQ.isPending) {
+    return (
+      <div>
+        <PageHeader eyebrow="Alert" title="Loading…" sub="Fetching live evidence bundle." />
+        <div className="rs-card p-8 text-center text-sm" style={{ color: "var(--text-secondary)" }} aria-busy="true">Loading live alert…</div>
+      </div>
+    );
+  }
+  if (alertsQ.isError || !a) {
+    return (
+      <div>
+        <PageHeader eyebrow="Alert" title={id ? `Alert ${id.slice(0, 12)}…` : "Alert"} sub="Full evidence bundle." />
+        <div className="rs-card p-8 text-center text-sm font-bold" style={{ color: "var(--risk-high)" }} role="alert">Alert not found or unreachable — it may be resolved or outside your scope.</div>
+      </div>
+    );
+  }
+  const evidence = a.evidence as { message?: string; ruleId?: string } | undefined;
+  const sev: "high" | "medium" | "low" = a.severity === "HIGH" ? "high" : a.severity === "MEDIUM" ? "medium" : "low";
   return (
     <div>
-      <PageHeader eyebrow={`${a.disaster} · ${a.date}`} title={`Alert ${a.id}`} sub="Full evidence bundle. Resolve or escalate requires a reason code." />
+      <PageHeader eyebrow={`${a.entityType ?? "Alert"} · ${a.status ?? "OPEN"}`} title={`Alert ${a.id.slice(0, 12)}…`} sub="Full evidence bundle. Resolve or escalate requires a reason code." />
       <SignalBanner />
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
         <Reveal>
           <div className="rs-card h-fit p-6 md:p-7">
             <p className="eyebrow">Forensics</p>
-            <h2 className=" mt-1 text-[22px]">Source document vs extracted</h2>
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <div className="rs-inset p-4"><p className="eyebrow !text-[10px]">Scanned invoice</p><p className="mono mt-2 text-xs leading-6" style={{ color: "var(--text-secondary)" }}>[PDF preview]<br />INV-8821 · {formatINR(48500)}<br />GSTIN 18ABC…F1Z5</p></div>
-              <div className="rs-inset p-4"><p className="eyebrow !text-[10px]">Extracted (Textract)</p><p className="mono mt-2 text-xs leading-6">amount = 48500 (0.99)<br />gstin = 18ABC…F1Z5 (0.97)<br />hash = 9f2c…41ab</p></div>
-            </div>
+            <h2 className=" mt-1 text-[22px]">Evidence record</h2>
             <div className="rs-inset mt-3 p-4 text-sm leading-6" style={{ color: "var(--text-secondary)" }}>
-              <span className="eyebrow !text-[10px]">Machine explanation</span>
-              <p className="mt-1.5"><span style={{ color: "var(--text-primary)" }} className="font-semibold">Amounts match a prior invoice within 48h</span> <span className="mono rounded bg-[var(--bg-surface)] px-1.5 text-xs">[INV-8834]</span>, and the payee account appears across 3 vendors <span className="mono rounded bg-[var(--bg-surface)] px-1.5 text-xs">[vendor_bank_4412]</span>.</p>
+              <span className="eyebrow !text-[10px]">Backend evidence</span>
+              <p className="mono mt-1.5 text-xs">{evidence?.message ?? evidence?.ruleId ?? JSON.stringify(a.evidence ?? {}).slice(0, 300)}</p>
+              <p className="mono mt-2 text-xs">entity {a.entityType} · {(a.entityId ?? "").slice(0, 24)} · risk {((a.riskScore ?? 0) / 100).toFixed(2)}</p>
             </div>
             <label className="mt-4 block text-sm font-bold" htmlFor="fraud-reason">Reason code (required)
               <select id="fraud-reason" value={reason} onChange={(e) => { setReason(e.target.value); setDone(null); }} className="rs-input mt-2" required>
@@ -209,19 +216,19 @@ export function FraudDetail() {
               <button type="button" disabled={!reason || working} className="rs-btn-primary rs-btn-sm flex-1" onClick={() => decide("RESOLVED")}>{working ? "Saving…" : "Resolve"}</button>
               <button type="button" disabled={!reason || working} className="rs-btn-secondary rs-btn-sm flex-1" onClick={() => decide("ESCALATED")}>{working ? "Saving…" : "Escalate"}</button>
             </div>
-            {isLiveId && isApiEnabled() && <p className="mono mt-2 text-[11px]" style={{ color: "var(--text-muted)" }}>LIVE ALERT · decisions write to the backend audit chain</p>}
+            <p className="mono mt-2 text-[11px]" style={{ color: "var(--text-muted)" }}>LIVE ALERT · decisions write to the backend audit chain</p>
             {!reason && <p className="mt-2 text-xs" style={{ color: "var(--text-muted)" }}>Choose a reason code to enable Resolve / Escalate.</p>}
             {done && <motion.p initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} role="status" className="mt-3 flex items-center gap-2 rounded-xl p-3 text-sm font-bold" style={{ color: "var(--risk-low)", background: "color-mix(in srgb, var(--risk-low) 9%, transparent)" }}><CheckCircle2 size={16} aria-hidden />{done}</motion.p>}
           </div>
         </Reveal>
         <div>
           <div className="rs-card mb-3 flex flex-wrap items-center gap-3 p-4">
-            <RiskBadge severity={a.severity} withPulse />
-            <span className="kpi text-[20px] font-semibold">score {a.score.toFixed(2)}</span>
-            <span className="mono text-xs" style={{ color: "var(--text-muted)" }}>{a.entity}</span>
+            <RiskBadge severity={sev} withPulse />
+            <span className="kpi text-[20px] font-semibold">score {((a.riskScore ?? 0) / 100).toFixed(2)}</span>
+            <span className="mono text-xs" style={{ color: "var(--text-muted)" }}>{a.entityType} · {(a.entityId ?? "").slice(0, 18)}</span>
           </div>
           <div className="space-y-3" aria-live="polite">
-            {a.evidence.map((e, i) => <EvidenceCard key={`${a.id}-${e.source}-${i}`} label={e.label} source={e.source} index={i} />)}
+            <EvidenceCard label={evidence?.message ?? `Rule ${evidence?.ruleId ?? "signal"} requires review.`} source={`alert:${a.id.slice(0, 12)}`} index={0} />
           </div>
         </div>
       </div>
@@ -231,10 +238,14 @@ export function FraudDetail() {
 
 interface Msg { id: string; q: string; a: string; cites: string[] }
 
+const SUGGESTED = [
+  "Which invoices exceed the emergency price band?",
+  "Show vendors sharing a bank account",
+  "Summarise high-risk open alerts",
+];
+
 export function Copilot() {
-  const [msgs, setMsgs] = useState<Msg[]>([
-    { id: "seed-1", q: copilotCanned[2], a: "3 high-risk alerts open for Assam Floods 2026. Top driver is duplicate-amount matching (2 invoices, ₹48,500) on one shared payee account.", cites: ["ALT-1042", "rule:DUP-AMT-02", "doc:INV-8821"] },
-  ]);
+  const [msgs, setMsgs] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const bottom = useRef<HTMLDivElement>(null);
@@ -243,28 +254,22 @@ export function Copilot() {
   const ask = async (q: string) => {
     const text = q.trim();
     if (!text || busy) return;
+    if (!isAgentEnabled()) {
+      const id = `m-${Date.now()}`;
+      setMsgs((m) => [...m, { id, q: text, a: "AI agent is not configured — set VITE_AGENT_URL to enable live analysis.", cites: [] }]);
+      return;
+    }
     setBusy(true);
     const id = `m-${Date.now()}`;
     setMsgs((m) => [...m, { id, q: text, a: "", cites: [] }]);
     setInput("");
-    const canned = () => {
-      setMsgs((m) => m.map((x) => x.id === id
-        ? { ...x, a: "Ledger snapshot: 1 payee-account cluster needs review — •••• 4412 appears across 3 vendors with 2 duplicate-amount pairs. Recommend opening ALT-1042 before releasing PO-224.", cites: ["row:vendor_bank_4412", "ALT-1042", "row:vendor_9182"] }
-        : x));
-      setBusy(false);
-    };
-    if (!isAgentEnabled()) {
-      window.setTimeout(canned, 900);
-      return;
-    }
     try {
       const ans = await agent.aiQuery({ question: text });
       const parsed = parseAgentAnswer(ans);
       setMsgs((m) => m.map((x) => x.id === id ? { ...x, a: parsed.summary, cites: parsed.cites } : x));
-    } catch {
-      canned();
+    } catch (e) {
       setMsgs((m) => m.map((x) => x.id === id
-        ? { ...x, a: `${x.a} (Live agent unreachable — synthetic fallback.)`, cites: [...x.cites, "fallback:synthetic"] }
+        ? { ...x, a: e instanceof Error ? `Live agent query failed: ${e.message}` : "Live agent query failed.", cites: [] }
         : x));
     } finally {
       setBusy(false);
@@ -273,9 +278,9 @@ export function Copilot() {
 
   return (
     <div>
-      <PageHeader eyebrow="Auditor console" title="AI Auditor Copilot" sub="Every sentence cites the rows it came from — never vibes." />
+      <PageHeader eyebrow="Auditor console" title="AI Auditor Copilot" sub="Live agent analysis — every sentence cites the rows it came from." />
       <div className="mb-4 flex flex-wrap gap-2" aria-label="Suggested queries">
-        {copilotCanned.map((c) => <button key={c} type="button" onClick={() => ask(c)} className="rs-btn-secondary rs-btn-sm !rounded-full !font-semibold"><Sparkles size={13} aria-hidden style={{ color: "var(--accent-600)" }} /> {c}</button>)}
+        {SUGGESTED.map((c) => <button key={c} type="button" onClick={() => ask(c)} className="rs-btn-secondary rs-btn-sm !rounded-full !font-semibold"><Sparkles size={13} aria-hidden style={{ color: "var(--accent-600)" }} /> {c}</button>)}
       </div>
       <Reveal>
         <div className="rs-card flex max-h-[60vh] min-h-[340px] flex-col overflow-hidden">
@@ -283,16 +288,19 @@ export function Copilot() {
             <span className="flex h-9 w-9 items-center justify-center rounded-2xl text-white" style={{ background: "var(--primary-600)" }}><Sparkles size={17} aria-hidden /></span>
             <div>
               <p className="text-[14px] font-extrabold">Copilot · ledger-grounded</p>
-              <p className="mono text-[10.5px]" style={{ color: busy ? "var(--accent-600)" : "var(--risk-low)" }}>{busy ? "● REASONING OVER LEDGER…" : "● GROUNDED · CITATIONS ON"}</p>
+              <p className="mono text-[10.5px]" style={{ color: busy ? "var(--accent-600)" : "var(--risk-low)" }}>{busy ? "● REASONING OVER LEDGER…" : isAgentEnabled() ? "● LIVE AGENT" : "● AGENT NOT CONFIGURED"}</p>
             </div>
           </div>
           <div className="flex-1 space-y-3 overflow-y-auto p-5" aria-live="polite">
+            {msgs.length === 0 && (
+              <p className="text-sm" style={{ color: "var(--text-muted)" }}>Ask a question above — analysis streams back with ledger citations.</p>
+            )}
             {msgs.map((m) => (
               <div key={m.id} className="space-y-2">
                 <motion.p initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="rs-inset ml-auto max-w-[85%] px-4 py-3 text-sm font-medium">{m.q}</motion.p>
                 <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="max-w-[92%] rounded-2xl rounded-tl-md border p-4 text-sm leading-6" style={{ borderColor: "var(--border-subtle)", background: "var(--bg-surface-alt)" }}>
                   {m.a
-                    ? <><p>{m.a}</p><p className="mono mt-2.5 flex flex-wrap gap-1 text-[11px]" style={{ color: "var(--text-muted)" }}>Sources: {m.cites.map((c) => <span key={c} className="rounded-md border px-1.5 py-0.5 underline underline-offset-2" style={{ borderColor: "var(--border-subtle)" }}>[{c}]</span>)}</p></>
+                    ? <><p>{m.a}</p>{m.cites.length > 0 && <p className="mono mt-2.5 flex flex-wrap gap-1 text-[11px]" style={{ color: "var(--text-muted)" }}>Sources: {m.cites.map((c) => <span key={c} className="rounded-md border px-1.5 py-0.5 underline underline-offset-2" style={{ borderColor: "var(--border-subtle)" }}>[{c}]</span>)}</p>}</>
                     : <div className="space-y-2" aria-label="Thinking"><div className="rs-skeleton h-3.5 w-11/12 rounded" /><div className="rs-skeleton h-3.5 w-3/4 rounded" /><p className="mono text-[11px]" style={{ color: "var(--text-muted)" }}>Consulting ledger…</p></div>}
                 </motion.div>
               </div>
@@ -310,47 +318,78 @@ export function Copilot() {
 }
 
 export function Approvals() {
-  const [decided, setDecided] = useState<Record<string, string>>({});
-  const items = [["Seva Sahyog — budget revision ₹12L", "Budget", "Docs 4/4 ✓"], ["Brahmaputra Logistics — vendor KYC", "KYC", "GSTIN ✓ · bank pending"]];
+  const alertsQ = useFraudAlerts();
+  const alerts = ((alertsQ.data ?? []) as LiveAlert[]).filter((a) => (a.status ?? "OPEN") === "OPEN");
+  const resolve = useResolveAlert();
+  const [note, setNote] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const act = async (a: LiveAlert, status: string) => {
+    setBusyId(a.id);
+    setNote(null);
+    try {
+      await resolve.mutateAsync({ id: a.id, status, reason: status === "RESOLVED" ? "approved-after-review" : "escalated-for-field-visit" });
+      setNote(`${status} recorded for ${a.id.slice(0, 8)}…`);
+    } catch (e) {
+      setNote(e instanceof Error ? e.message : "Action failed.");
+    } finally {
+      setBusyId(null);
+    }
+  };
   return (
     <div>
-      <PageHeader eyebrow="Auditor console" title="Approvals" sub="NGO/vendor onboarding + high-risk sign-offs with document checklist." />
-      <Stagger className="space-y-3">
-        {items.map(([t, k, docs]) => (
-          <StaggerItem key={t as string}>
-            <div className="rs-card flex flex-wrap items-center gap-4 p-5">
-              <span className="eyebrow w-16 !text-[10px]">{k}</span>
-              <div className="min-w-0 flex-1 basis-56"><p className=" text-[16.5px]">{t}</p><p className="mono mt-0.5 text-xs" style={{ color: "var(--text-muted)" }}>{docs}</p></div>
-              {decided[t as string]
-                ? <p role="status" className="flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm font-bold" style={{ color: "var(--risk-low)", background: "color-mix(in srgb, var(--risk-low) 9%, transparent)" }}><CheckCircle2 size={15} aria-hidden />{decided[t as string]}</p>
-                : <>
-                  <button type="button" className="rs-btn-primary rs-btn-sm" onClick={() => setDecided((d) => ({ ...d, [t as string]: "Approved ✓ logged" }))}>Approve</button>
-                  <button type="button" className="rs-btn-secondary rs-btn-sm" onClick={() => setDecided((d) => ({ ...d, [t as string]: "Changes requested — sent back" }))}>Request changes</button>
-                </>}
-            </div>
-          </StaggerItem>
-        ))}
-      </Stagger>
+      <PageHeader eyebrow="Auditor console" title="Approvals" sub="Live open alerts awaiting auditor sign-off. User onboarding happens in the Cognito console." />
+      {alertsQ.isPending ? (
+        <div className="rs-card p-6 text-sm" style={{ color: "var(--text-secondary)" }} aria-busy="true">Loading approvals…</div>
+      ) : alertsQ.isError ? (
+        <div className="rs-card p-6 text-sm font-bold" style={{ color: "var(--risk-high)" }} role="alert">Could not load approvals.</div>
+      ) : alerts.length === 0 ? (
+        <div className="rs-card p-6 text-sm" style={{ color: "var(--text-secondary)" }}>Nothing awaiting approval.</div>
+      ) : (
+        <Stagger className="space-y-3">
+          {alerts.map((a) => (
+            <StaggerItem key={a.id}>
+              <div className="rs-card flex flex-wrap items-center gap-4 p-5">
+                <span className="eyebrow w-20 !text-[10px]">{a.severity ?? "SIGNAL"}</span>
+                <div className="min-w-0 flex-1 basis-56"><p className=" text-[16.5px]">{a.entityType} · {(a.entityId ?? "").slice(0, 20)}</p><p className="mono mt-0.5 text-xs" style={{ color: "var(--text-muted)" }}>{a.id}</p></div>
+                <>
+                  <button type="button" className="rs-btn-primary rs-btn-sm" disabled={busyId === a.id} onClick={() => act(a, "RESOLVED")}>{busyId === a.id ? "Saving…" : "Approve"}</button>
+                  <button type="button" className="rs-btn-secondary rs-btn-sm" disabled={busyId === a.id} onClick={() => act(a, "ESCALATED")}>Escalate</button>
+                </>
+              </div>
+            </StaggerItem>
+          ))}
+        </Stagger>
+      )}
+      {note && <p role="status" className="mt-3 text-[13px] font-bold" style={{ color: "var(--risk-low)" }}>{note}</p>}
     </div>
   );
 }
 
 export function AllFunds() {
-  const rows = [["TXN-9001", "Assam Fund → Seva Sahyog", 2000000, "a91f…02ce"], ["TXN-9002", "Seva Sahyog → Sharma Suppliers", 48500, "9f2c…41ab"], ["TXN-9003", "Seva Sahyog → NorthEast Traders", 66000, "77be…10d2"]] as const;
+  const govQ = useGovernmentDashboard();
+  const expenses = (((govQ.data as { expenses?: (GovExpense & { expenseId: string })[] } | undefined)?.expenses) ?? []);
   return (
     <div>
-      <PageHeader eyebrow="Auditor console" title="All Funds & Transactions" sub="Full-detail government ledger view. Bank accounts masked to last-4." />
+      <PageHeader eyebrow="Auditor console" title="All Funds & Transactions" sub="Live government ledger view with per-expense verification." />
       <Reveal>
         <div className="rs-card overflow-x-auto">
-          <table className="rs-table min-w-[720px]">
-            <caption className="sr-only">Full fund ledger</caption>
-            <thead><tr><th scope="col">Txn</th><th scope="col">From → To</th><th scope="col">Amount</th><th scope="col">Chain hash</th></tr></thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r[0]}><td className="mono font-bold">{r[0]}</td><td className="font-medium">{r[1]}</td><td className="kpi text-[15px] font-semibold">{formatINR(r[2])}</td><td className="mono text-xs" style={{ color: "var(--text-muted)" }}><span className="mr-1.5 inline-flex h-5 w-5 items-center justify-center rounded-full align-middle text-[10px]" style={{ background: "color-mix(in srgb, var(--risk-low) 14%, transparent)", color: "var(--risk-low)" }}>✓</span>{r[3]}</td></tr>
-              ))}
-            </tbody>
-          </table>
+          {govQ.isPending ? (
+            <p className="p-6 text-sm" style={{ color: "var(--text-secondary)" }} aria-busy="true">Loading ledger…</p>
+          ) : govQ.isError ? (
+            <p className="p-6 text-sm font-bold" style={{ color: "var(--risk-high)" }} role="alert">Ledger unreachable — auditor sign-in required.</p>
+          ) : expenses.length === 0 ? (
+            <p className="p-6 text-sm" style={{ color: "var(--text-secondary)" }}>No expenses on the ledger yet.</p>
+          ) : (
+            <table className="rs-table min-w-[720px]">
+              <caption className="sr-only">Live expense ledger</caption>
+              <thead><tr><th scope="col">Expense</th><th scope="col">Delivery</th><th scope="col">Risk</th><th scope="col">Alerts</th></tr></thead>
+              <tbody>
+                {expenses.map((e) => (
+                  <tr key={e.expenseId}><td className="mono font-bold">{e.expenseId.slice(0, 12)}…</td><td className="font-medium">{e.delivery?.status ?? "—"}</td><td className="kpi text-[15px] font-semibold">{e.riskScore?.total ?? 0}</td><td className="mono text-xs" style={{ color: "var(--text-muted)" }}>{e.alerts?.length ?? 0} flags</td></tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       </Reveal>
     </div>
@@ -358,29 +397,40 @@ export function AllFunds() {
 }
 
 export function GeoView() {
-  const rows: [string, number, string, number][] = [["Kamrup", 8200000, "High affected", 92], ["Dhemaji", 5400000, "High affected", 61], ["Barpeta", 3100000, "Medium", 35], ["Jorhat", 1900000, "Medium", 22]];
-  const max = Math.max(...rows.map((r) => r[1]));
+  const govQ = useGovernmentDashboard();
+  const expenses = (((govQ.data as { expenses?: GovExpense[] } | undefined)?.expenses) ?? []);
+  const verified = expenses.filter((e) => e.delivery?.status === "DELIVERY_VERIFIED").length;
+  const pending = expenses.filter((e) => e.delivery?.status === "DELIVERY_PENDING").length;
+  const flagged = expenses.filter((e) => (e.delivery?.status ?? "").includes("FLAG")).length;
+  const items = [
+    { name: "Verified", value: verified, label: `${verified} verified`, color: "#0F7A52" },
+    { name: "Pending", value: pending, label: `${pending} pending`, color: "#2E7CF6" },
+    { name: "Flagged", value: flagged, label: `${flagged} flagged`, color: "#B3272E" },
+  ];
+  const max = Math.max(1, ...items.map((i) => i.value));
   return (
     <div>
-      <PageHeader eyebrow="Auditor console" title="District Expenditure" sub="Spend vs affected population. Table is the source of truth for accessibility." />
+      <PageHeader eyebrow="Auditor console" title="Delivery Verification" sub="Live delivery outcomes across all expenses. Table is the source of truth." />
       <Reveal>
         <div className="rs-card p-6 md:p-7">
-          <IsoBars
-            ariaLabel="District spend bars: Kamrup highest, then Dhemaji, Barpeta, Jorhat"
-            max={max}
-            items={rows.map(([name, spend, aff], i) => ({
-              name,
-              value: spend,
-              label: `${shortINR(spend)} · ${aff}`,
-              color: ["#2456D6", "#2E7CF6", "#0F7A52", "#0F6D8A"][i % 4],
-            }))}
-          />
-          <p className="mono mt-3 text-[11px]" style={{ color: "var(--text-muted)" }}>KAMRUP 92 · DHEMAJI 61 · BARPETA 35 · JORHAT 22 — INDEX VS REFERENCE</p>
-          <table className="rs-table mono mt-5 !text-xs">
-            <caption className="sr-only">District spend versus affected population</caption>
-            <thead><tr><th scope="col">District</th><th scope="col">Spend</th><th scope="col">Affected</th></tr></thead>
-            <tbody>{rows.map((r) => <tr key={r[0]}><td className="font-bold">{r[0]}</td><td>{formatINR(r[1])}</td><td>{r[2]}</td></tr>)}</tbody>
-          </table>
+          {govQ.isPending ? (
+            <p className="text-sm" style={{ color: "var(--text-secondary)" }} aria-busy="true">Loading verification…</p>
+          ) : govQ.isError ? (
+            <p className="text-sm font-bold" style={{ color: "var(--risk-high)" }} role="alert">Ledger unreachable — auditor sign-in required.</p>
+          ) : (
+            <>
+              <IsoBars
+                ariaLabel={`Delivery verification: ${verified} verified, ${pending} pending, ${flagged} flagged`}
+                max={max}
+                items={items}
+              />
+              <table className="rs-table mono mt-5 !text-xs">
+                <caption className="sr-only">Delivery verification outcomes</caption>
+                <thead><tr><th scope="col">Outcome</th><th scope="col">Count</th></tr></thead>
+                <tbody>{items.map((r) => <tr key={r.name}><td className="font-bold">{r.name}</td><td>{r.value}</td></tr>)}</tbody>
+              </table>
+            </>
+          )}
         </div>
       </Reveal>
     </div>
@@ -388,30 +438,30 @@ export function GeoView() {
 }
 
 export function AuditLog() {
-  const [verifying, setVerifying] = useState(false);
-  const [ok, setOk] = useState<string | null>(null);
+  const govQ = useGovernmentDashboard();
+  const chain = (govQ.data as { auditChain?: { valid?: boolean; length?: number } } | undefined)?.auditChain;
+  const [q, setQ] = useState("");
+  const expenses = (((govQ.data as { expenses?: GovExpense[] } | undefined)?.expenses) ?? []);
+  const filtered = expenses.filter((e) => e.expenseId.toLowerCase().includes(q.toLowerCase()));
   return (
     <div>
-      <PageHeader eyebrow="Auditor console" title="Audit-Log Search" sub="Hash-chained log with visible chain verification." action={
-        <button type="button" className="rs-btn-primary rs-btn-sm" disabled={verifying} onClick={() => { setVerifying(true); setOk(null); window.setTimeout(() => { setVerifying(false); setOk("Chain verified ✓ — 8,813 blocks recomputed, 0 breaks."); }, 1200); }}>
-          {verifying ? "Verifying…" : "Verify chain integrity"}
-        </button>
-      } />
-      <input placeholder="Search hash, actor, action…" aria-label="Search audit log" className="rs-input max-w-md !rounded-full" />
+      <PageHeader eyebrow="Auditor console" title="Audit-Log Search" sub="Hash-chained log verified live against the backend." />
+      <Reveal>
+        <div className="rs-card mb-4 p-5 text-sm font-bold" role="status" style={{ color: govQ.isError ? "var(--risk-high)" : "var(--risk-low)" }}>
+          {govQ.isPending ? "Verifying chain…" : govQ.isError ? "Chain unreachable — auditor sign-in required." : `Chain ${chain?.valid === false ? "BROKEN" : "verified ✓"} — ${chain?.length ?? expenses.length} records recomputed.`}
+        </div>
+      </Reveal>
+      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter by expense ID…" aria-label="Search audit log" className="rs-input max-w-md !rounded-full" />
       <Reveal className="mt-4">
         <div className="rs-card mono space-y-2 overflow-hidden p-5 text-xs leading-6" style={{ color: "var(--text-secondary)" }} aria-live="polite">
-          <div className="flex items-center gap-3 border-b pb-2.5" style={{ borderColor: "var(--border-subtle)" }}>
-            <span className="rounded-md px-2 py-0.5 font-bold" style={{ background: "var(--bg-surface-alt)" }}>#8812</span>
-            <span>2026-09-12 · auditor@relief · RESOLVE ALT-1039 · prev 7c1a… → 9f2c…</span>
-            <span className="ml-auto font-bold" style={{ color: "var(--risk-low)" }}>✓</span>
-          </div>
-          <div className="flex items-center gap-3 border-b pb-2.5" style={{ borderColor: "var(--border-subtle)" }}>
-            <span className="rounded-md px-2 py-0.5 font-bold" style={{ background: "var(--bg-surface-alt)" }}>#8813</span>
-            <span>2026-09-12 · system · SCORE INV-8821 = 0.87 · prev 9f2c… → 41ab…</span>
-            <span className="ml-auto font-bold" style={{ color: "var(--risk-low)" }}>✓</span>
-          </div>
-          {verifying && <p className="rs-skeleton h-4 rounded" aria-label="Verifying chain" />}
-          {ok && <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} role="status" className="flex items-center gap-2 rounded-xl p-3 font-bold" style={{ color: "var(--risk-low)", background: "color-mix(in srgb, var(--risk-low) 9%, transparent)" }}><CheckCircle2 size={15} aria-hidden />{ok}</motion.p>}
+          {filtered.slice(0, 20).map((e, i) => (
+            <div key={e.expenseId} className="flex items-center gap-3 border-b pb-2.5" style={{ borderColor: "var(--border-subtle)" }}>
+              <span className="rounded-md px-2 py-0.5 font-bold" style={{ background: "var(--bg-surface-alt)" }}>#{i + 1}</span>
+              <span>{e.expenseId.slice(0, 16)}… · {e.delivery?.status ?? "—"} · risk {e.riskScore?.total ?? 0}</span>
+              <span className="ml-auto font-bold" style={{ color: "var(--risk-low)" }}>✓</span>
+            </div>
+          ))}
+          {filtered.length === 0 && <p>No records match.</p>}
         </div>
       </Reveal>
     </div>

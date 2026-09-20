@@ -1,19 +1,24 @@
-// Frontend → backend contract (integration layer).
-// Deployment-safe: when VITE_API_URL is unset, callers keep using src/lib/mock.ts.
-// Backend: Express 5 on :3000, all routes under /api/v1, header actor claims
-// (x-role: DONOR|NGO|FIELD|GOVT, x-actor-id, x-org-id), Idempotency-Key on payments.
-// Docs: backend/README.md, backend/docs/backend-prd-and-aws-delivery-plan.md
+// Frontend → backend contract (integration layer) — LIVE ONLY, no mocks.
+// Backend: Express 5 on :3000, all routes under /api/v1, actor claims via
+// Cognito `Authorization: Bearer` (primary) + x-role/x-actor-id/x-org-id
+// compat headers, Idempotency-Key on payments.
+// Docs: backend/README.md (served live at /api-docs).
 
 import type { Role } from "@/lib/store";
 
-const BASE = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ?? "";
+const RAW_BASE = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ?? "";
 const AGENT_BASE = (import.meta.env.VITE_AGENT_URL as string | undefined)?.replace(/\/$/, "") ?? "";
 
-/** Ensure all API calls use /api/v1 prefix */
-const API_BASE = BASE.endsWith("/api/v1") ? BASE : `${BASE}/api/v1`;
+// Single normalization point: every call below uses API, so VITE_API_URL
+// works with or without the /api/v1 suffix.
+const API = RAW_BASE.endsWith("/api/v1") ? RAW_BASE : `${RAW_BASE}/api/v1`;
 
-export const isApiEnabled = () => BASE.length > 0;
+export const isApiEnabled = () => RAW_BASE.length > 0;
 export const isAgentEnabled = () => AGENT_BASE.length > 0;
+
+export function requireApi() {
+  if (!isApiEnabled()) throw new Error("Backend is not configured: set VITE_API_URL.");
+}
 
 /**
  * Frontend role → backend actor role.
@@ -36,8 +41,7 @@ export interface ActorClaims {
   role: Role;
   actorId: string;
   orgId?: string;
-  /** Cognito access token. When set, sent as `Authorization: Bearer`.
-   *  Local demo keeps working without it (backend FEATURE_DEMO_ROLE_HEADERS). */
+  /** Cognito access token, sent as `Authorization: Bearer`. Required in production. */
   accessToken?: string;
 }
 
@@ -54,9 +58,9 @@ function headers(claims: ActorClaims, extra: Record<string, string> = {}) {
 }
 
 async function request<T>(path: string, claims: ActorClaims, init: RequestInit = {}, idempotencyKey?: string): Promise<T> {
-  if (!isApiEnabled()) throw new Error("API disabled: set VITE_API_URL to enable live backend calls.");
+  requireApi();
   const send = (token: string | undefined) =>
-    fetch(`${BASE}${path}`, {
+    fetch(`${API}${path}`, {
       ...init,
       headers: headers({ ...claims, accessToken: token }, {
         ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
@@ -96,13 +100,14 @@ async function request<T>(path: string, claims: ActorClaims, init: RequestInit =
   }
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`API ${res.status} ${path}: ${text.slice(0, 200)}`);
+    throw new Error(`API ${res.status} ${path}: ${text.slice(0, 300)}`);
   }
+  if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
 }
 
 async function agentRequest<T>(path: string, body: unknown): Promise<T> {
-  if (!isAgentEnabled()) throw new Error("Agent disabled: set VITE_AGENT_URL to enable live AI analysis.");
+  if (!isAgentEnabled()) throw new Error("Agent is not configured: set VITE_AGENT_URL.");
   const res = await fetch(`${AGENT_BASE}${path}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -110,7 +115,7 @@ async function agentRequest<T>(path: string, body: unknown): Promise<T> {
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`Agent ${res.status} ${path}: ${text.slice(0, 200)}`);
+    throw new Error(`Agent ${res.status} ${path}: ${text.slice(0, 300)}`);
   }
   return res.json() as Promise<T>;
 }
@@ -129,13 +134,113 @@ export const agent = {
 };
 
 export const api = {
-  health: () => fetch(`${API_BASE}/health`).then((r) => { if (!r.ok) throw new Error(`health ${r.status}`); return r.json(); }),
-  publicDashboard: <T,>(): Promise<T> => fetch(`${API_BASE}/dashboard/public`).then((r) => { if (!r.ok) throw new Error(`public ${r.status}`); return r.json(); }),
+  health: () => { requireApi(); return fetch(`${API}/health`).then((r) => { if (!r.ok) throw new Error(`health ${r.status}`); return r.json(); }); },
+  publicDashboard: <T,>(): Promise<T> => { requireApi(); return fetch(`${API}/dashboard/public`).then((r) => { if (!r.ok) throw new Error(`public ${r.status}`); return r.json(); }); },
+  governmentDashboard: <T,>(claims: ActorClaims): Promise<T> =>
+    request(`/dashboard/government`, claims),
+  auditVerify: <T,>(claims: ActorClaims): Promise<T> =>
+    request(`/audit-chain/verify`, claims),
+
+  // Relief: disasters, campaigns, donations, allocations, lineage
+  createDisaster: <T,>(body: unknown, claims: ActorClaims): Promise<T> =>
+    request(`/disasters`, claims, { method: "POST", body: JSON.stringify(body) }),
+  listDisasters: <T,>(claims: ActorClaims): Promise<T> =>
+    request(`/disasters`, claims),
+  createCampaign: <T,>(body: unknown, claims: ActorClaims): Promise<T> =>
+    request(`/campaigns`, claims, { method: "POST", body: JSON.stringify(body) }),
+  listCampaigns: <T,>(claims: ActorClaims): Promise<T> =>
+    request(`/campaigns`, claims),
+  donate: <T,>(campaignId: string, body: unknown, claims: ActorClaims): Promise<T> =>
+    request(`/campaigns/${encodeURIComponent(campaignId)}/donations`, claims, { method: "POST", body: JSON.stringify(body) }),
+  listDonations: <T,>(claims: ActorClaims): Promise<T> =>
+    request(`/donations`, claims),
+  allocateFunds: <T,>(body: unknown, claims: ActorClaims): Promise<T> =>
+    request(`/fund-allocations`, claims, { method: "POST", body: JSON.stringify(body) }),
   lineage: <T,>(donationId: string, claims: ActorClaims): Promise<T> =>
     request(`/donations/${encodeURIComponent(donationId)}/lineage`, claims),
+
+  // Orgs, programs, budgets, vendors, POs, invoices, expenses, payments
+  createOrganization: <T,>(body: unknown, claims: ActorClaims): Promise<T> =>
+    request(`/organizations`, claims, { method: "POST", body: JSON.stringify(body) }),
+  listOrganizations: <T,>(claims: ActorClaims): Promise<T> =>
+    request(`/organizations`, claims),
+  createProgram: <T,>(body: unknown, claims: ActorClaims): Promise<T> =>
+    request(`/programs`, claims, { method: "POST", body: JSON.stringify(body) }),
+  listPrograms: <T,>(claims: ActorClaims): Promise<T> =>
+    request(`/programs`, claims),
+  createBudget: <T,>(body: unknown, claims: ActorClaims): Promise<T> =>
+    request(`/budgets`, claims, { method: "POST", body: JSON.stringify(body) }),
+  createVendor: <T,>(body: unknown, claims: ActorClaims): Promise<T> =>
+    request(`/vendors`, claims, { method: "POST", body: JSON.stringify(body) }),
+  listVendors: <T,>(claims: ActorClaims): Promise<T> =>
+    request(`/vendors`, claims),
+  addVendorBankAccount: <T,>(vendorId: string, body: unknown, claims: ActorClaims): Promise<T> =>
+    request(`/vendors/${encodeURIComponent(vendorId)}/bank-accounts`, claims, { method: "POST", body: JSON.stringify(body) }),
+  listVendorBankAccounts: <T,>(vendorId: string, claims: ActorClaims): Promise<T> =>
+    request(`/vendors/${encodeURIComponent(vendorId)}/bank-accounts`, claims),
+  createPurchaseOrder: <T,>(body: unknown, claims: ActorClaims): Promise<T> =>
+    request(`/purchase-orders`, claims, { method: "POST", body: JSON.stringify(body) }),
+  uploadInvoice: <T,>(body: unknown, claims: ActorClaims): Promise<T> =>
+    request(`/invoices/upload`, claims, { method: "POST", body: JSON.stringify(body) }),
+  invoiceVerification: <T,>(id: string, claims: ActorClaims): Promise<T> =>
+    request(`/invoices/${encodeURIComponent(id)}/verification`, claims),
+  createExpense: <T,>(body: unknown, claims: ActorClaims): Promise<T> =>
+    request(`/expenses`, claims, { method: "POST", body: JSON.stringify(body) }),
+  payExpense: <T,>(body: unknown, claims: ActorClaims, idempotencyKey: string): Promise<T> =>
+    request(`/transactions`, claims, { method: "POST", body: JSON.stringify(body) }, idempotencyKey),
+  expenseVerification: <T,>(id: string, claims: ActorClaims): Promise<T> =>
+    request(`/expenses/${encodeURIComponent(id)}/verification`, claims),
+  checkPending: <T,>(expenseId: string, claims: ActorClaims): Promise<T> =>
+    request(`/expenses/${encodeURIComponent(expenseId)}/check-pending`, claims, { method: "POST", body: "{}" }),
+
+  // Delivery: beneficiaries, distributions, proofs, disputes
+  createBeneficiary: <T,>(body: unknown, claims: ActorClaims): Promise<T> =>
+    request(`/beneficiaries`, claims, { method: "POST", body: JSON.stringify(body) }),
+  createDistribution: <T,>(body: unknown, claims: ActorClaims): Promise<T> =>
+    request(`/distributions`, claims, { method: "POST", body: JSON.stringify(body) }),
+  uploadProof: <T,>(distributionId: string, body: unknown, claims: ActorClaims): Promise<T> =>
+    request(`/distributions/${encodeURIComponent(distributionId)}/proof`, claims, { method: "POST", body: JSON.stringify(body) }),
+  confirmDistribution: <T,>(distributionId: string, body: unknown): Promise<T> => {
+    requireApi();
+    return fetch(`${API}/distributions/${encodeURIComponent(distributionId)}/confirm`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }).then(async (r) => {
+      if (!r.ok) throw new Error(`API ${r.status} confirm: ${(await r.text().catch(() => "")).slice(0, 300)}`);
+      return r.json();
+    });
+  },
+  createDispute: <T,>(body: unknown, claims: ActorClaims): Promise<T> =>
+    request(`/community-disputes`, claims, { method: "POST", body: JSON.stringify(body) }),
+
+  // Oversight
   fraudAlerts: <T,>(claims: ActorClaims): Promise<T> => request(`/fraud-alerts`, claims),
   resolveAlert: <T,>(id: string, body: unknown, claims: ActorClaims): Promise<T> =>
     request(`/fraud-alerts/${encodeURIComponent(id)}/resolve`, claims, { method: "POST", body: JSON.stringify(body) }),
+  sampleAudits: <T,>(body: unknown, claims: ActorClaims): Promise<T> =>
+    request(`/field-audits/sample`, claims, { method: "POST", body: JSON.stringify(body) }),
+  auditResult: <T,>(id: string, body: unknown, claims: ActorClaims): Promise<T> =>
+    request(`/field-audits/${encodeURIComponent(id)}/result`, claims, { method: "POST", body: JSON.stringify(body) }),
+  aiAudit: <T,>(body: unknown, claims: ActorClaims): Promise<T> =>
+    request(`/ai/audit`, claims, { method: "POST", body: JSON.stringify(body) }),
+
+  // Verification pipeline + evidence
+  processInvoice: <T,>(id: string, body: unknown, claims: ActorClaims): Promise<T> =>
+    request(`/verification/invoices/${encodeURIComponent(id)}/process`, claims, { method: "POST", body: JSON.stringify(body) }),
+  invoiceStatus: <T,>(id: string, claims: ActorClaims): Promise<T> =>
+    request(`/verification/invoices/${encodeURIComponent(id)}/status`, claims),
+  processProof: <T,>(id: string, body: unknown, claims: ActorClaims): Promise<T> =>
+    request(`/verification/proofs/${encodeURIComponent(id)}/process`, claims, { method: "POST", body: JSON.stringify(body) }),
+  proofStatus: <T,>(id: string, claims: ActorClaims): Promise<T> =>
+    request(`/verification/proofs/${encodeURIComponent(id)}/status`, claims),
+  verificationAiQuery: <T,>(body: unknown, claims: ActorClaims): Promise<T> =>
+    request(`/verification/ai-query`, claims, { method: "POST", body: JSON.stringify(body) }),
+  s3SignedUrl: <T,>(params: Record<string, string | number>, claims: ActorClaims): Promise<T> => {
+    const qs = new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)])).toString();
+    return request(`/verification/s3-signed-url?${qs}`, claims);
+  },
+
   ghostDelivery: <T,>(claims: ActorClaims): Promise<T> =>
     request(`/demo/ghost-delivery`, claims, { method: "POST", body: "{}" }),
 };

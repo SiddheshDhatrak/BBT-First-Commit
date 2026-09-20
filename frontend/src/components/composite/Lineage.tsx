@@ -1,14 +1,19 @@
 import { motion } from "motion/react";
-import { lineageExample } from "@/lib/mock";
 import { formatINR } from "@/lib/format";
 
 export interface LineageSplit { category: string; amount: number; color: string }
 
-/** Clean professional fund-flow. Depth via soft shadows, blue donor node. */
-export function FundLineageFlow({ amount, splits, donationId }: { amount?: number; splits?: LineageSplit[]; donationId?: string } = {}) {
-  const total = amount ?? lineageExample.amount;
-  const parts = splits ?? lineageExample.splits;
-  const id = donationId ?? lineageExample.donationId;
+const FALLBACK_SPLITS: LineageSplit[] = [
+  { category: "Programs", amount: 0, color: "#2456D6" },
+];
+
+/** Live fund-flow. Requires real amount/splits/donationId — no synthetic defaults. */
+export function FundLineageFlow({ amount, splits, donationId }: { amount: number; splits?: LineageSplit[]; donationId: string }) {
+  const total = amount;
+  const parts = (splits && splits.length > 0 ? splits : FALLBACK_SPLITS).map((s, i) =>
+    s.amount > 0 ? s : { ...s, amount: i === 0 ? total : 0 }
+  );
+  const id = donationId;
   const count = parts.length;
   const H = Math.max(210, count * 52 + 16);
   return (

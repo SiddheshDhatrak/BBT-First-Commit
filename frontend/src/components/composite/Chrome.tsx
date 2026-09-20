@@ -37,9 +37,9 @@ export function ThemeToggle() {
 
 export function SyntheticRibbon() {
   return (
-    <div className="rs-ribbon mono" role="note" aria-label="Synthetic demo data notice">
-      <span className="mr-2 inline-block h-1.5 w-1.5 rounded-full align-middle" style={{ background: "var(--primary-600)" }} aria-hidden />
-      SYNTHETIC DEMO DATA — NOT REAL FINANCIAL INFORMATION · SIMULATED RAIL
+    <div className="rs-ribbon mono" role="note" aria-label="Live ledger data notice">
+      <span className="mr-2 inline-block h-1.5 w-1.5 rounded-full align-middle" style={{ background: "var(--risk-low)" }} aria-hidden />
+      LIVE LEDGER DATA — VERIFIED BACKEND RECORDS
     </div>
   );
 }

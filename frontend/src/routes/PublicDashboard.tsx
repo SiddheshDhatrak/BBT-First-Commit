@@ -1,13 +1,9 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { motion } from "motion/react";
 import { ArrowUpRight, Award } from "lucide-react";
-import { disasters, ngos } from "@/lib/mock";
 import { formatINR } from "@/lib/format";
-import { isApiEnabled } from "@/lib/api";
-import { usePublicMetrics, type PublicMetrics } from "@/lib/queries";
+import { useCampaigns, useOrganizations, usePublicMetrics, type PublicMetrics } from "@/lib/queries";
 import { PageHeader } from "@/components/composite/Chrome";
-import { TrustScoreRing } from "@/components/composite/Viz";
 import { CountUp } from "@/components/luxe/CountUp";
 import { Reveal, Stagger, StaggerItem } from "@/components/luxe/Reveal";
 import { TiltCard } from "@/components/viz/Depth";
@@ -16,11 +12,10 @@ import { shortINR } from "@/routes/Public";
 
 const BAR_COLORS = ["#2456D6", "#2E7CF6", "#0F7A52", "#0F6D8A"];
 
-/** Live ledger strip: renders only when VITE_API_URL is set and the call succeeds. */
-function LiveLedgerStrip() {
-  const live = usePublicMetrics();
-  if (!isApiEnabled() || !live.data) return null;
-  const m: PublicMetrics = live.data;
+interface CampaignRow { id: string; name: string; targetAmount?: number; disasterId?: string; status?: string }
+
+/** Live ledger strip from GET /dashboard/public. */
+function LiveLedgerStrip({ m }: { m: PublicMetrics }) {
   const cells: [string, string][] = [
     ["Donated", formatINR(m.totalDonated)],
     ["Gifts", String(m.donationCount)],
@@ -53,30 +48,64 @@ function LiveLedgerStrip() {
 }
 
 export default function PublicDashboard() {
-  const [id, setId] = useState(disasters[0]?.id ?? "");
-  const d = disasters.find((x) => x.id === id) ?? disasters[0];
-  if (!d) return <div className="rs-card p-8 text-center text-sm" style={{ color: "var(--text-secondary)" }}>No disaster data yet — check back soon.</div>;
+  const metrics = usePublicMetrics();
+  const campaignsQ = useCampaigns();
+  const orgsQ = useOrganizations();
+  const m = metrics.data;
+  const campaigns = ((campaignsQ.data ?? []) as CampaignRow[]);
+  const donatedByCampaign = new Map((m?.utilizationByCampaign ?? []).map((c) => [c.campaignId, c.donated]));
+  const [id, setId] = useState<string>("");
+  const selected = campaigns.find((x) => x.id === id) ?? campaigns[0];
+  const donated = selected ? (donatedByCampaign.get(selected.id) ?? 0) : 0;
+  const target = selected?.targetAmount ?? 0;
+
+  if (metrics.isPending || campaignsQ.isPending) {
+    return (
+      <div>
+        <PageHeader eyebrow="Public · aggregate only" title="Transparency Dashboard" sub="Privacy-safe view. Fraud counts are aggregates — no investigation detail here." />
+        <div className="rs-card p-8 text-center text-sm" style={{ color: "var(--text-secondary)" }} aria-busy="true">Loading live ledger…</div>
+      </div>
+    );
+  }
+  if (metrics.isError || !m) {
+    return (
+      <div>
+        <PageHeader eyebrow="Public · aggregate only" title="Transparency Dashboard" sub="Privacy-safe view. Fraud counts are aggregates — no investigation detail here." />
+        <div className="rs-card p-8 text-center text-sm font-bold" style={{ color: "var(--risk-high)" }} role="alert">Live ledger unreachable — check backend connection.</div>
+      </div>
+    );
+  }
+  if (!selected) {
+    return (
+      <div>
+        <PageHeader eyebrow="Public · aggregate only" title="Transparency Dashboard" sub="Privacy-safe view. Fraud counts are aggregates — no investigation detail here." />
+        <LiveLedgerStrip m={m} />
+        <div className="rs-card p-8 text-center text-sm" style={{ color: "var(--text-secondary)" }}>No campaigns yet — check back after the first campaign is created.</div>
+      </div>
+    );
+  }
   const data = [
-    { name: "Collected", v: d.collected },
-    { name: "Allocated", v: d.allocated },
-    { name: "Spent", v: d.spent },
-    { name: "Remaining", v: Math.max(0, d.collected - d.spent) },
+    { name: "Donated", v: donated },
+    { name: "Target", v: target },
+    { name: "Remaining", v: Math.max(0, target - donated) },
+    { name: "Expenses", v: m.expenseCount },
   ];
+  const orgs = ((orgsQ.data ?? []) as { id: string; name: string }[]);
   return (
     <div>
       <PageHeader eyebrow="Public · aggregate only" title="Transparency Dashboard" sub="Privacy-safe view. Fraud counts are aggregates — no investigation detail here." />
-      <LiveLedgerStrip />
+      <LiveLedgerStrip m={m} />
 
       <Stagger className="grid grid-cols-2 gap-4 xl:grid-cols-4">
-        {[["Collected", d.collected, "Total raised"], ["Allocated", d.allocated, "Sent to NGOs"], ["Spent", d.spent, "Paid to vendors"], ["Remaining", d.collected - d.spent, "Unspent balance"]].map(([k, v, hint]) => (
+        {[["Donated", donated, "To this campaign"], ["Target", target, "Campaign goal"], ["Remaining", Math.max(0, target - donated), "To raise"], ["Gifts", m.donationCount, "Across all campaigns"]].map(([k, v, hint]) => (
           <StaggerItem key={k as string}>
             <TiltCard>
               <div className="rs-card p-5 md:p-6">
                 <p className="eyebrow !text-[10px]">{k}</p>
                 <p className="kpi mt-2 text-[30px] font-extrabold leading-none md:text-[34px]">
-                  <CountUp to={v as number} format={(x) => shortINR(x)} />
+                  {k === "Gifts" ? <CountUp to={v as number} format={(x) => String(Math.round(x))} /> : <CountUp to={v as number} format={(x) => shortINR(x)} />}
                 </p>
-                <p className="mono mt-2 hidden text-[11px] lg:block" style={{ color: "var(--text-muted)" }} title={formatINR(v as number)}>{hint} · {formatINR(v as number)}</p>
+                <p className="mono mt-2 hidden text-[11px] lg:block" style={{ color: "var(--text-muted)" }} title={k === "Gifts" ? String(v) : formatINR(v as number)}>{hint} · {k === "Gifts" ? String(v) : formatINR(v as number)}</p>
               </div>
             </TiltCard>
           </StaggerItem>
@@ -89,12 +118,12 @@ export default function PublicDashboard() {
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h2 className="text-[20px] font-extrabold tracking-tight">Fund movement</h2>
-                <p className="mono mt-0.5 text-[11px] tracking-wide" style={{ color: "var(--text-muted)" }}>{d.name.toUpperCase()} · RECONCILED NIGHTLY</p>
+                <p className="mono mt-0.5 text-[11px] tracking-wide" style={{ color: "var(--text-muted)" }}>{selected.name.toUpperCase()} · RECONCILED NIGHTLY</p>
               </div>
               <label className="flex items-center gap-2 text-[13px] font-bold" style={{ color: "var(--text-secondary)" }}>
-                Disaster
-                <select value={id} onChange={(e) => setId(e.target.value)} className="rs-input !w-auto !min-h-[40px] !rounded-full !py-2 text-[13px]" aria-label="Select disaster">
-                  {disasters.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+                Campaign
+                <select value={selected.id} onChange={(e) => setId(e.target.value)} className="rs-input !w-auto !min-h-[40px] !rounded-full !py-2 text-[13px]" aria-label="Select campaign">
+                  {campaigns.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
                 </select>
               </label>
             </div>
@@ -103,14 +132,14 @@ export default function PublicDashboard() {
                 data={data.map((r, i) => ({ name: r.name, value: r.v, color: BAR_COLORS[i % BAR_COLORS.length] }))}
                 formatTick={(v) => shortINR(v)}
                 formatExact={(v) => formatINR(v)}
-                ariaLabel={`Fund movement for ${d.name}: collected ${formatINR(d.collected)}, allocated ${formatINR(d.allocated)}, spent ${formatINR(d.spent)}`}
+                ariaLabel={`Fund movement for ${selected.name}: donated ${formatINR(donated)}, target ${formatINR(target)}`}
               />
             </div>
             <details className="mt-2 text-xs" style={{ color: "var(--text-secondary)" }}><summary className="cursor-pointer font-bold underline underline-offset-2">View as data table</summary>
               <table className="rs-table mono mt-2 !text-xs">
-                <caption className="sr-only">Fund movement for {d.name}</caption>
+                <caption className="sr-only">Fund movement for {selected.name}</caption>
                 <thead><tr><th scope="col">Stage</th><th scope="col">Amount</th></tr></thead>
-                <tbody>{data.map((r) => <tr key={r.name}><td>{r.name}</td><td>{formatINR(r.v)}</td></tr>)}</tbody>
+                <tbody>{data.map((r) => <tr key={r.name}><td>{r.name}</td><td>{r.name === "Expenses" ? String(r.v) : formatINR(r.v)}</td></tr>)}</tbody>
               </table>
             </details>
           </div>
@@ -118,41 +147,23 @@ export default function PublicDashboard() {
 
         <Reveal delay={0.08}>
           <div className="rs-card h-full p-5 md:p-7">
-            <p className="eyebrow">Top NGO by score</p>
+            <p className="eyebrow">Participating organisations</p>
             <h2 className="mt-1 flex items-center gap-2 text-[20px] font-extrabold tracking-tight">
               <Award size={19} aria-hidden style={{ color: "var(--primary-600)" }} /> Hall of trust
             </h2>
-            <p className="mt-1 text-[13px]" style={{ color: "var(--text-secondary)" }}>Scores always ship with breakdowns.</p>
-            <div className="mt-4"><TrustScoreRing score={ngos[0].score} components={ngos[0].components} /></div>
-            <Link to={`/org/${ngos[0].id}`} className="mt-3 inline-flex items-center gap-1 text-sm font-extrabold">{ngos[0].name} <ArrowUpRight size={15} aria-hidden /></Link>
+            <p className="mt-1 text-[13px]" style={{ color: "var(--text-secondary)" }}>
+              {orgsQ.isPending ? "Loading organisations…" : orgsQ.isError ? "Sign in to see participating organisations." : `${orgs.length} organisations on the ledger.`}
+            </p>
+            <div className="mt-4 space-y-2">
+              {orgs.slice(0, 5).map((o) => (
+                <Link key={o.id} to={`/org/${o.id}`} className="rs-inset flex items-center gap-2 p-3 text-sm font-bold">
+                  {o.name} <ArrowUpRight size={14} aria-hidden className="ml-auto" />
+                </Link>
+              ))}
+            </div>
           </div>
         </Reveal>
       </div>
-
-      <div className="mb-2 mt-8 flex items-end justify-between">
-        <h2 className="text-[22px] font-extrabold tracking-tight">Participating NGOs</h2>
-        <p className="mono hidden text-[11px] tracking-wide sm:block" style={{ color: "var(--text-muted)" }}>{ngos.length} VERIFIED PARTNERS</p>
-      </div>
-      <Stagger className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {ngos.map((n, i) => (
-          <StaggerItem key={n.id}>
-            <Link to={`/org/${n.id}`} className="rs-card rs-card-lift block p-6">
-              <div className="flex items-center justify-between gap-2">
-                <span className="mono text-[11px] font-bold" style={{ color: "var(--text-muted)" }}>0{i + 1}</span>
-                <span className="kpi rounded-full border px-3 py-1 text-[13px] font-extrabold" style={{ borderColor: "var(--border-subtle)", background: "var(--accent-soft)", color: "var(--primary-600)" }}>{n.score} / 100</span>
-              </div>
-              <span className="mt-2 block text-[19px] font-extrabold tracking-tight">{n.name}</span>
-              <span className="mono mt-1 block text-[11px]" style={{ color: "var(--text-muted)" }}>{n.programs} PROGRAMS · {formatINR(n.spent)} DEPLOYED</span>
-              <div className="mt-4 border-t pt-4" style={{ borderColor: "var(--border-subtle)" }}>
-                <TrustScoreRing score={n.score} components={n.components} />
-              </div>
-              <motion.span className="mt-4 inline-flex items-center gap-1 text-[13px] font-extrabold" whileHover={{ x: 3 }}>
-                View public profile <ArrowUpRight size={14} aria-hidden />
-              </motion.span>
-            </Link>
-          </StaggerItem>
-        ))}
-      </Stagger>
     </div>
   );
 }
