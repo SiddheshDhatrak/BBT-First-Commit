@@ -44,6 +44,7 @@ const resendVerificationSchema = z.object({
 const inviteSchema = z.object({
   email: emailSchema,
   role: z.enum(['FIELD', 'GOVT']),
+  sendEmail: z.boolean().optional(),
 });
 
 module.exports = {

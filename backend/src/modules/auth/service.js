@@ -84,7 +84,119 @@ function createAuthService(config = loadConfig(), repo = null) {
       consumedAt: null,
       createdBy: actor.id || null,
     });
-    return { id: invite.id, email: invite.email, role: invite.role, token: invite.token };
+    const result = { id: invite.id, email: invite.email, role: invite.role, token: invite.token };
+    if (input.sendEmail === false) {
+      return { ...result, emailSent: false };
+    }
+    if (!isConfigured) {
+      // eslint-disable-next-line no-console
+      console.log(`[invite:mock] to=${result.email} role=${result.role} token=${result.token}`);
+      return { ...result, emailSent: false, emailReason: 'Mock mode: token logged to console' };
+    }
+    const { sendInviteEmail } = require('./mailer');
+    const sent = await sendInviteEmail({ to: result.email, role: result.role, token: result.token });
+    return { ...result, emailSent: sent.sent, ...(sent.sent ? {} : { emailReason: sent.reason }) };
+  }
+
+  async function listInvites(actor) {
+    if (!actor || (actor.role !== 'GOVT' && actor.role !== 'SYSTEM')) {
+      throw forbidden('Only government users can list invitations.');
+    }
+    if (repo) {
+      const rows = await repo.list('invitations');
+      return {
+        invites: rows.map(r => ({
+          id: r.id,
+          email: r.email,
+          role: r.role,
+          consumedAt: r.consumedAt || r.consumed_at || null,
+          revokedAt: r.revokedAt || r.revoked_at || null,
+          createdBy: r.createdBy || r.created_by || null,
+          createdAt: r.createdAt || r.created_at || null,
+        })),
+      };
+    }
+    return {
+      invites: Array.from(MEMORY_INVITES.values()).map(r => ({
+        id: r.id,
+        email: r.email,
+        role: r.role,
+        consumedAt: r.consumedAt || null,
+        revokedAt: r.revokedAt || null,
+        createdBy: r.createdBy || null,
+        createdAt: r.createdAt || null,
+      })),
+    };
+  }
+
+  async function revokeInvite(id, actor) {
+    if (!actor || (actor.role !== 'GOVT' && actor.role !== 'SYSTEM')) {
+      throw forbidden('Only government users can revoke invitations.');
+    }
+    const mark = async (row) => {
+      if (!row) throw notFound('Invitation not found');
+      if (row.consumedAt || row.consumed_at) throw badRequest('Consumed invitations are immutable.');
+      const consumedAt = new Date().toISOString();
+      if (repo) {
+        await repo.update('invitations', row.id, { consumedAt, revokedAt: consumedAt });
+      } else {
+        row.consumedAt = consumedAt;
+        row.revokedAt = consumedAt;
+      }
+      return { id: row.id, revoked: true };
+    };
+    if (repo) {
+      let row = null;
+      try {
+        row = await repo.find('invitations', id);
+      } catch {
+        row = null;
+      }
+      if (!row) {
+        const rows = await repo.list('invitations');
+        row = rows.find(i => i.token === id) || null;
+      }
+      return mark(row);
+    }
+    for (const row of MEMORY_INVITES.values()) {
+      if (row.id === id || row.token === id) return mark(row);
+    }
+    return mark(null);
+  }
+
+  async function resendInvite(id, actor) {
+    if (!actor || (actor.role !== 'GOVT' && actor.role !== 'SYSTEM')) {
+      throw forbidden('Only government users can resend invitations.');
+    }
+    let row = null;
+    if (repo) {
+      try {
+        row = await repo.find('invitations', id);
+      } catch {
+        row = null;
+      }
+      if (!row) {
+        const rows = await repo.list('invitations');
+        row = rows.find(i => i.token === id) || null;
+      }
+    } else {
+      for (const r of MEMORY_INVITES.values()) {
+        if (r.id === id || r.token === id) {
+          row = r;
+          break;
+        }
+      }
+    }
+    if (!row) throw notFound('Invitation not found');
+    if (row.consumedAt || row.consumed_at) throw badRequest('Consumed invitations cannot be resent.');
+    if (!isConfigured) {
+      // eslint-disable-next-line no-console
+      console.log(`[invite:mock-resend] to=${row.email} role=${row.role} token=${row.token}`);
+      return { id: row.id, emailSent: false, emailReason: 'Mock mode: token logged to console', token: row.token };
+    }
+    const { sendInviteEmail } = require('./mailer');
+    const sent = await sendInviteEmail({ to: row.email, role: row.role, token: row.token });
+    return { id: row.id, emailSent: sent.sent, ...(sent.sent ? {} : { emailReason: sent.reason }), token: row.token };
   }
 
   function resolveRegistrationRole(input, actor) {
@@ -634,6 +746,9 @@ function createAuthService(config = loadConfig(), repo = null) {
     listUsers,
     assignRole,
     createInvite,
+    listInvites,
+    revokeInvite,
+    resendInvite,
   };
 }
 

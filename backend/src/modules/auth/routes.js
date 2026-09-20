@@ -110,6 +110,21 @@ function createAuthRoutes(router, auth, { withRole } = {}) {
     const result = await auth.createInvite(body, actor);
     return { status: 201, body: result };
   })));
+
+  router.add('GET', '/api/v1/auth/invites', withRole([roles.GOVT], async ({ actor }) => {
+    const result = await auth.listInvites(actor);
+    return { body: result };
+  }));
+
+  router.add('DELETE', '/api/v1/auth/invites/:id', withRole([roles.GOVT], async ({ params, actor }) => {
+    const result = await auth.revokeInvite(params.id, actor);
+    return { body: result };
+  }));
+
+  router.add('POST', '/api/v1/auth/invites/:id/resend', withRole([roles.GOVT], async ({ params, actor }) => {
+    const result = await auth.resendInvite(params.id, actor);
+    return { body: result };
+  }));
 }
 
 module.exports = { createAuthRoutes };

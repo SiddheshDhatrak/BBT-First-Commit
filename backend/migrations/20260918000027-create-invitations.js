@@ -10,6 +10,7 @@ exports.up = (pgm) => {
     role: { type: 'text', notNull: true },
     token: { type: 'text', notNull: true, unique: true },
     consumed_at: { type: 'timestamptz' },
+    revoked_at: { type: 'timestamptz' },
     created_by: { type: 'text' },
     created_at: { type: 'timestamptz', notNull: true, default: pgm.func('now()') },
     updated_at: { type: 'timestamptz', notNull: true, default: pgm.func('now()') },
