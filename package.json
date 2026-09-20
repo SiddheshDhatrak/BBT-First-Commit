@@ -11,7 +11,7 @@
     "dev:backend": "npm run dev --workspace=backend",
     "build:frontend": "npm run build --workspace=frontend",
     "build:backend": "npm run build --workspace=backend",
-    "build": "npm run build:frontend && npm run build:backend",
+    "build": "npm run build:frontend",
     "test:frontend": "npm run test --workspace=frontend 2>/dev/null || echo 'no test script'",
     "test:backend": "npm run test --workspace=backend",
     "lint:frontend": "npm run lint --workspace=frontend",
