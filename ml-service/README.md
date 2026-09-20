@@ -5,9 +5,9 @@ relief-procurement invoices. It is deliberately limited to ML anomaly scoring: i
 not call the Node/Express backend, process OCR documents, run deterministic fraud rules,
 or generate LLM explanations.
 
-In the wider RahatSetu architecture, its score is intended to feed the
-`mlAnomalyScore` component of the Node backend's `OversightService.calculateRiskScore`.
-That integration is intentionally not implemented in this repository.
+In the wider RahatSetu architecture, its score feeds the
+`mlAnomalyScore` component of the Node backend's `OversightService.calculateRiskScore`
+via `POST /api/v1/predict` (see `ML_SERVICE_URL` in `backend/.env.example`).
 
 ## Setup
 
@@ -41,18 +41,18 @@ field's one-hot columns instead of failing inference.
 Train first, then run:
 
 ```powershell
-uvicorn src.api:app --reload
+uvicorn src.api:app --host 0.0.0.0 --port 8001
 ```
 
 Example:
 
 ```powershell
-curl -X POST http://127.0.0.1:8000/predict ^
+curl -X POST http://127.0.0.1:8001/api/v1/predict ^
   -H "Content-Type: application/json" ^
-  -d "{\"invoice_id\":\"INV-1001\",\"total_amount\":45000,\"quantity\":100,\"unit_price\":450,\"reference_unit_price\":440,\"price_deviation\":0.023,\"vendor_age_years\":4.5,\"vendor_tier\":\"core\",\"category\":\"Food & Nutrition\",\"invoice_datetime\":\"2026-09-18T14:00:00\"}"
+  -d "{\"invoice_id\":\"INV-1001\",\"vendor_id\":\"VEND-1001\",\"total_amount\":45000,\"quantity\":100,\"unit_price\":450,\"reference_unit_price\":440,\"price_deviation\":0.023,\"vendor_age_years\":4.5,\"vendor_tier\":\"core\",\"category\":\"Food & Nutrition\",\"invoice_datetime\":\"2026-09-18T14:00:00\"}"
 ```
 
-`POST /predict/batch` accepts a JSON array of the same invoice objects. `GET /health`
+`POST /api/v1/predict/batch` accepts a JSON array of the same invoice objects. `GET /api/v1/health`
 confirms whether artifacts were loaded when the process started.
 
 ## Tests
@@ -68,5 +68,8 @@ scoring. They train a model if its ignored local artifacts are absent.
 
 ```powershell
 docker build -t rahatsetu-ml-service .
-docker run -p 8000:8000 rahatsetu-ml-service
+docker run -p 8001:8001 rahatsetu-ml-service
 ```
+
+The image trains the model at build time (`python -m src.train`), so it
+never serves `503 Model artifacts are unavailable`.

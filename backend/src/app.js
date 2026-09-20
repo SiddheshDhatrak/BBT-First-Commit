@@ -60,7 +60,7 @@ function createApp({ repository, config } = {}) {
   }
   const audit = createAuditService(repo);
   const adapters = createAdapters(cfg);
-  const verificationPipeline = new VerificationPipeline(repo, audit, adapters);
+  const verificationPipeline = new VerificationPipeline(repo, audit, adapters, { agentUrl: cfg.AGENT_URL });
   const relief = createReliefService(repo, audit);
   const delivery = createDeliveryService(repo, audit);
   const oversight = createOversightService(repo, audit);
@@ -494,7 +494,7 @@ function createApp({ repository, config } = {}) {
     );
   }
 
-  createAuthRoutes(router, auth, { withRole });
+  createAuthRoutes(router, auth, { withRole, config: cfg });
 
   router.add(
     'POST',
@@ -589,8 +589,14 @@ function createApp({ repository, config } = {}) {
   router.add(
     'POST',
     '/api/v1/verification/ai-query',
-    withRole([roles.GOVT], validate(aiAuditSchema, 'body'), async ({ body }) => {
-      return { body: await verificationPipeline.queryAuditor(body.expenseId, body.question) };
+    withRole([roles.GOVT], validate(aiAuditSchema, 'body'), async ({ body, actor, req }) => {
+      const authHeader = req.headers['authorization'] || req.headers['Authorization'];
+      return {
+        body: await verificationPipeline.queryAuditor(body.expenseId, body.question, {
+          actor,
+          authHeader: typeof authHeader === 'string' ? authHeader : undefined,
+        }),
+      };
     })
   );
   router.add(

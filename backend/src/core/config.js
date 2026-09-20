@@ -13,6 +13,8 @@ const DEFAULTS = {
   REPOSITORY_DRIVER: 'memory',
   FEATURE_DEMO_ROLE_HEADERS: 'true',
   FEATURE_MOCK_ADAPTERS: 'true',
+  ML_SERVICE_URL: '',
+  AGENT_URL: '',
 };
 
 function parseBool(value, defaultValue = false) {

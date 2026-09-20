@@ -3,7 +3,7 @@
 // Auth: Cognito access token from localStorage `rahatsetu_access_token`.
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { agent, api, isAgentEnabled, isApiEnabled, type ActorClaims } from "@/lib/api";
+import { api, isApiEnabled, type ActorClaims } from "@/lib/api";
 import { useUI } from "@/lib/store";
 
 /** Actor claims for the signed-in user. Uses real Cognito tokens when available. */
@@ -61,11 +61,22 @@ export interface AgentAnswer {
   cites: string[];
 }
 
-/** Defensive parser for agent AnalyzeResponse shapes:
- *  {analysis:{summary,risk_factors[],evidence[]}} → summary + cites. */
+/** Defensive parser for agent/bedrock answer shapes:
+ *  agent AnalyzeResponse {analysis:{summary,risk_factors[],evidence[]}},
+ *  backend MockBedrock {completion, sourceRecordIds{...}} → summary + cites. */
 export function parseAgentAnswer(raw: unknown): AgentAnswer {
   if (typeof raw === "string") return { summary: raw, cites: [] };
   const r = (raw ?? {}) as Record<string, unknown>;
+  if (typeof r.completion === "string" && r.completion) {
+    const cites: string[] = [];
+    const src = (r.sourceRecordIds ?? {}) as Record<string, unknown>;
+    for (const key of ["expenseId", "alertIds", "checkIds"]) {
+      const v = src[key];
+      if (typeof v === "string") cites.push(v.slice(0, 60));
+      else if (Array.isArray(v)) for (const item of v.slice(0, 6)) cites.push(String(item).slice(0, 60));
+    }
+    return { summary: r.completion, cites };
+  }
   const analysis = (r.analysis ?? r.answer ?? {}) as Record<string, unknown>;
   const summary =
     (typeof analysis.summary === "string" && analysis.summary) ||
@@ -268,11 +279,10 @@ export function usePayExpense() {
 }
 
 export function useAgentAsk() {
+  const claims = useActorClaims();
   return useMutation({
-    mutationFn: (question: string) => {
-      if (!isAgentEnabled()) throw new Error("AI agent is not configured: set VITE_AGENT_URL.");
-      return agent.aiQuery<unknown>({ question }).then(parseAgentAnswer);
-    },
+    mutationFn: ({ expenseId, question }: { expenseId: string; question: string }) =>
+      api.verificationAiQuery<unknown>({ expenseId, question }, claims).then(parseAgentAnswer),
   });
 }
 

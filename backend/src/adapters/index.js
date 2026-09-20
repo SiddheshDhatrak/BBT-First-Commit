@@ -4,6 +4,7 @@ const { MockBedrockAdapter } = require('./mock-bedrock');
 const { S3Adapter } = require('./s3');
 const { TextractAdapter } = require('./textract');
 const { BedrockAdapter } = require('./bedrock');
+const { MLAdapter } = require('./ml');
 const { VerificationPipeline } = require('./verification-pipeline');
 
 function createAdapters(config = {}) {
@@ -14,6 +15,7 @@ function createAdapters(config = {}) {
       s3: new MockS3Adapter(),
       textract: new MockTextractAdapter(),
       bedrock: new MockBedrockAdapter(),
+      ml: new MLAdapter(config),
     };
   }
 
@@ -21,6 +23,7 @@ function createAdapters(config = {}) {
     s3: new S3Adapter(config),
     textract: new TextractAdapter(config),
     bedrock: new BedrockAdapter(config),
+    ml: new MLAdapter(config),
   };
 }
 
@@ -32,5 +35,6 @@ module.exports = {
   S3Adapter,
   TextractAdapter,
   BedrockAdapter,
+  MLAdapter,
   VerificationPipeline,
 };

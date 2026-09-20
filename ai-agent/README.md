@@ -2,16 +2,18 @@
 
 Standalone AI-agent service for RahatSetu. It orchestrates evidence validation, a separate ML anomaly service, and AWS Bedrock for audit-support analysis.
 
-## Current development mode
+## Providers
 
-The project is configured to run without an AWS account:
+Integrated defaults (see `.env.example`):
 
 ```env
-AI_PROVIDER=mock
-ML_PROVIDER=mock
+AI_PROVIDER=mock        # mock = deterministic offline; bedrock = real AWS Bedrock analysis
+ML_PROVIDER=http        # http = live ml-service scoring; mock = deterministic offline stub
 ```
 
-In this mode, `/api/v1/analyze` uses deterministic local mock responses and does not contact AWS Bedrock.
+`ML_PROVIDER=http` calls `POST {ML_SERVICE_URL}/api/v1/predict` (default
+`http://localhost:8001`). In `mock` mode `/api/v1/analyze` uses deterministic
+local responses and does not contact AWS Bedrock.
 
 ## AWS Bedrock later
 

@@ -37,11 +37,11 @@ class Orchestrator:
         )
 
 
-    async def audit_query(self, request):
+    async def audit_query(self, request, authorization: str | None = None):
         """Handle Backend /api/v1/verification/ai-query without inventing ML inputs."""
         backend_record = {}
         if request.transaction is None:
-            backend_record = await self.backend_client.get_expense_verification(request.expense_id)
+            backend_record = await self.backend_client.get_expense_verification(request.expense_id, authorization)
 
         ml_result = request.ml_result or MLResult(
             available=False,
