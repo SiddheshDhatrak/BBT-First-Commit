@@ -2,30 +2,42 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence } from "motion/react";
 import { ArrowUpDown, CheckCircle2, Inbox, MapPin, SearchCheck, Sparkles } from "lucide-react";
-import { isApiEnabled } from "@/lib/api";
-import { useAgentAsk, useFraudAlerts, useGovernmentDashboard, usePublicMetrics, useResolveAlert, type LiveAlert } from "@/lib/queries";
+import { isAgentEnabled, isApiEnabled, isMlEnabled } from "@/lib/api";
+import { useAgentAsk, useAgentHealth, useFraudAlerts, useGovernmentDashboard, useMlHealth, usePublicMetrics, useResolveAlert, type LiveAlert } from "@/lib/queries";
 import { PageHeader } from "@/components/composite/Chrome";
 import { EvidenceCard, RiskBadge, SignalBanner } from "@/components/composite/Risk";
 import { Reveal, Stagger, StaggerItem } from "@/components/luxe/Reveal";
 import { IsoBars } from "@/components/viz/Depth";
 import { shortINR } from "@/lib/format";
 
-interface GovExpense { expenseId: string; riskScore?: { total?: number }; delivery?: { status?: string }; alerts?: { id: string }[] }
+interface GovExpense { expenseId: string; riskScore?: { total?: number; components?: { mlAnomalyScore?: number } }; delivery?: { status?: string }; alerts?: { id: string }[] }
 
 export function CommandCentre() {
   const alertsQ = useFraudAlerts();
   const govQ = useGovernmentDashboard();
   const metricsQ = usePublicMetrics();
+  const agentQ = useAgentHealth();
+  const mlQ = useMlHealth();
   const alerts = ((alertsQ.data ?? []) as LiveAlert[]);
   const open = alerts.filter((a) => (a.status ?? "OPEN") === "OPEN" || (a.status ?? "") === "INVESTIGATING");
   const high = alerts.filter((a) => (a.severity ?? "").toUpperCase() === "HIGH");
   const expenses = (((govQ.data as { expenses?: GovExpense[] } | undefined)?.expenses) ?? []);
+  const mlScores = expenses
+    .map((e) => e.riskScore?.components?.mlAnomalyScore)
+    .filter((v): v is number => typeof v === "number");
+  const avgMl = mlScores.length > 0 ? mlScores.reduce((s, v) => s + v, 0) / mlScores.length : null;
   const cards: [string, string, string][] = [
     ["Open investigations", alertsQ.isPending ? "…" : String(open.length), alertsQ.isError ? "ledger unreachable" : `${high.length} high signal`],
-    ["Expenses tracked", govQ.isPending ? "…" : String(expenses.length), govQ.isError ? "auditor sign-in required" : "live ledger"],
+    ["Expenses tracked", govQ.isPending ? "…" : String(expenses.length), govQ.isError ? "auditor sign-in required" : avgMl == null ? "live ledger" : `avg ML ${avgMl.toFixed(1)}/25pts`],
     ["Deliveries verified", metricsQ.data ? String(metricsQ.data.deliveryVerifiedExpenses) : "…", "live ledger"],
     ["Spend tracked", metricsQ.data ? shortINR(metricsQ.data.totalDonated) : "…", "all campaigns"],
   ];
+  const mlStatus = !isMlEnabled()
+    ? "ML proxied via backend (VITE_ML_URL unset — direct dot disabled)"
+    : mlQ.isPending ? "ML checking…" : mlQ.isError ? "ML unreachable — backend fails open" : `ML live · model ${(mlQ.data as { model_loaded?: boolean } | undefined)?.model_loaded ? "loaded" : "unknown"}`;
+  const agentStatus = !isAgentEnabled()
+    ? "agent not configured"
+    : agentQ.isPending ? "agent checking…" : agentQ.isError ? "agent unreachable — Copilot falls back to local" : "agent live";
   return (
     <div>
       <PageHeader eyebrow="Auditor console" title="Command Centre" sub="Live control-room view. Sign in as auditor opens dark — override anytime." />
@@ -54,6 +66,13 @@ export function CommandCentre() {
             )}
           </p>
           <Link to="/auditor/queue" className="rs-btn-secondary rs-btn-sm">Open queue →</Link>
+        </div>
+      </Reveal>
+      <Reveal className="mt-4">
+        <div className="rs-card flex flex-wrap items-center gap-3 p-5 text-[13px]" role="status" style={{ color: "var(--text-secondary)" }}>
+          <span className="mono rounded-md border px-2 py-1" style={{ borderColor: "var(--border-subtle)" }}>ML: {mlStatus}</span>
+          <span className="mono rounded-md border px-2 py-1" style={{ borderColor: "var(--border-subtle)" }}>AGENT: {agentStatus}</span>
+          <span style={{ color: "var(--text-muted)" }}>Risk = rules + stats + ML (0–25pts) + delivery + relationship · capped at 100.</span>
         </div>
       </Reveal>
     </div>
@@ -229,6 +248,14 @@ export function FraudDetail() {
           </div>
           <div className="space-y-3" aria-live="polite">
             <EvidenceCard label={evidence?.message ?? `Rule ${evidence?.ruleId ?? "signal"} requires review.`} source={`alert:${a.id.slice(0, 12)}`} index={0} />
+            <div className="rs-card p-4 text-[13px] leading-6" style={{ color: "var(--text-secondary)" }}>
+              <p className="eyebrow !text-[10px]">ML context</p>
+              <p className="mt-1.5">
+                Risk {((a.riskScore ?? 0) / 100).toFixed(2)} fuses deterministic rules, statistical checks, ML anomaly (0–25pts from
+                IsolationForest <span className="mono">isolation-forest-v1</span>), delivery and relationship signals.
+                Open the linked expense in Copilot or <Link to="/auditor/funds" className="font-bold underline underline-offset-2">All Funds</Link> to see the per-expense ML component.
+              </p>
+            </div>
           </div>
         </div>
       </div>
@@ -295,9 +322,13 @@ export function Copilot() {
     }
   };
 
+  const agentQ = useAgentHealth();
   return (
     <div>
-      <PageHeader eyebrow="Auditor console" title="AI Auditor Copilot" sub="Ledger-grounded analysis via the backend verification route — every query is audit-logged." />
+      <PageHeader eyebrow="Auditor console" title="AI Auditor Copilot" sub="Ledger-grounded analysis via the backend verification route (backend → agent :8002 → ml :8001 → Bedrock/mock) — every query is audit-logged." />
+      <p className="mono mb-3 text-[11px]" role="status" style={{ color: "var(--text-muted)" }}>
+        BACKEND-ROUTED · {isAgentEnabled() ? (agentQ.isError ? "agent unreachable — local fallback" : agentQ.data ? "agent live" : "agent checking…") : "direct agent URL unset — backend delegates via AGENT_URL"} · ML fused server-side
+      </p>
       <div className="mb-4 flex flex-wrap items-center gap-2.5" aria-label="Expense scope">
         <label className="flex items-center gap-2 text-[13px] font-bold" style={{ color: "var(--text-secondary)" }}>
           Expense
@@ -406,7 +437,7 @@ export function AllFunds() {
   const expenses = (((govQ.data as { expenses?: (GovExpense & { expenseId: string })[] } | undefined)?.expenses) ?? []);
   return (
     <div>
-      <PageHeader eyebrow="Auditor console" title="All Funds & Transactions" sub="Live government ledger view with per-expense verification." />
+      <PageHeader eyebrow="Auditor console" title="All Funds & Transactions" sub="Live government ledger view with per-expense verification including ML (0–25pts)." />
       <Reveal>
         <div className="rs-card overflow-x-auto">
           {govQ.isPending ? (
@@ -416,18 +447,29 @@ export function AllFunds() {
           ) : expenses.length === 0 ? (
             <p className="p-6 text-sm" style={{ color: "var(--text-secondary)" }}>No expenses on the ledger yet.</p>
           ) : (
-            <table className="rs-table min-w-[720px]">
+            <table className="rs-table min-w-[820px]">
               <caption className="sr-only">Live expense ledger</caption>
-              <thead><tr><th scope="col">Expense</th><th scope="col">Delivery</th><th scope="col">Risk</th><th scope="col">Alerts</th></tr></thead>
+              <thead><tr><th scope="col">Expense</th><th scope="col">Delivery</th><th scope="col">Risk</th><th scope="col">ML (/25)</th><th scope="col">Alerts</th></tr></thead>
               <tbody>
                 {expenses.map((e) => (
-                  <tr key={e.expenseId}><td className="mono font-bold">{e.expenseId.slice(0, 12)}…</td><td className="font-medium">{e.delivery?.status ?? "—"}</td><td className="kpi text-[15px] font-semibold">{e.riskScore?.total ?? 0}</td><td className="mono text-xs" style={{ color: "var(--text-muted)" }}>{e.alerts?.length ?? 0} flags</td></tr>
+                  <tr key={e.expenseId}>
+                    <td className="mono font-bold">{e.expenseId.slice(0, 12)}…</td>
+                    <td className="font-medium">{e.delivery?.status ?? "—"}</td>
+                    <td className="kpi text-[15px] font-semibold">{e.riskScore?.total ?? 0}</td>
+                    <td className="mono text-[13px] font-semibold" style={{ color: "var(--text-secondary)" }}>
+                      {typeof e.riskScore?.components?.mlAnomalyScore === "number" ? e.riskScore.components.mlAnomalyScore : "—"}
+                    </td>
+                    <td className="mono text-xs" style={{ color: "var(--text-muted)" }}>{e.alerts?.length ?? 0} flags</td>
+                  </tr>
                 ))}
               </tbody>
             </table>
           )}
         </div>
       </Reveal>
+      <p className="mono mt-2 text-[11px]" style={{ color: "var(--text-muted)" }}>
+        ML column = riskScore.components.mlAnomalyScore from IsolationForest (isolation-forest-v1) via ml-service :8001 · — means ml-service was unreachable at invoice process time.
+      </p>
     </div>
   );
 }

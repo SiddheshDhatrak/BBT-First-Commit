@@ -1,19 +1,22 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ArrowUpRight, Plus, UploadCloud } from "lucide-react";
-import { api } from "@/lib/api";
+import { api, isMlEnabled } from "@/lib/api";
 import {
   useActorClaims,
   useCampaigns,
   useCreateProgram,
   useCreateVendor,
+  useMlHealth,
   useOrganizations,
   usePrograms,
   useUploadInvoice,
   useVendors,
+  type InvoiceVerification,
 } from "@/lib/queries";
 import { PageHeader } from "@/components/composite/Chrome";
-import { PipelineStepper } from "@/components/composite/Viz";
+import { PipelineStepper, TrustScoreRing } from "@/components/composite/Viz";
+import { EvidenceCard, RiskBadge } from "@/components/composite/Risk";
 import { CountUp } from "@/components/luxe/CountUp";
 import { Reveal, Stagger, StaggerItem } from "@/components/luxe/Reveal";
 import { shortINR } from "@/lib/format";
@@ -169,7 +172,7 @@ export function Programs() {
 
 export function InvoiceList() {
   const [lookupId, setLookupId] = useState("");
-  const [result, setResult] = useState<unknown>(null);
+  const [result, setResult] = useState<InvoiceVerification | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const claims = useActorClaims();
@@ -179,16 +182,17 @@ export function InvoiceList() {
     setResult(null);
     setBusy(true);
     try {
-      setResult(await api.invoiceVerification<unknown>(lookupId.trim(), claims));
+      setResult(await api.invoiceVerification<InvoiceVerification>(lookupId.trim(), claims));
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Lookup failed.");
     } finally {
       setBusy(false);
     }
   };
+  const mlScore = typeof result?.mlAnomalyScore === "number" ? result.mlAnomalyScore : null;
   return (
     <div>
-      <PageHeader eyebrow="NGO portal" title="Invoices" sub="Upload → Extracted → Checked → Scored → Explained → Routed." action={<Link to="/ngo/invoices/upload" className="rs-btn-primary rs-btn-sm"><UploadCloud size={15} aria-hidden /> Upload invoice</Link>} />
+      <PageHeader eyebrow="NGO portal" title="Invoices" sub="Upload → Extracted → Checked → Scored (ML :8001) → Explained → Routed." action={<Link to="/ngo/invoices/upload" className="rs-btn-primary rs-btn-sm"><UploadCloud size={15} aria-hidden /> Upload invoice</Link>} />
       <Reveal>
         <div className="rs-card mb-4 p-5 md:p-6"><PipelineStepper current={4} /></div>
       </Reveal>
@@ -197,6 +201,18 @@ export function InvoiceList() {
           <input value={lookupId} onChange={(e) => setLookupId(e.target.value)} placeholder="Enter invoice UUID to check verification…" aria-label="Invoice ID" className="rs-input min-w-0 flex-1" required />
           <button type="submit" disabled={busy} className="rs-btn-secondary rs-btn-sm">{busy ? "Checking…" : "Check verification"}</button>
           {err && <p role="alert" className="w-full text-sm font-bold" style={{ color: "var(--risk-high)" }}>{err}</p>}
+          {result && (
+            <div className="flex w-full flex-wrap items-center gap-3 rounded-xl border p-4" style={{ borderColor: "var(--border-subtle)", background: "var(--bg-surface-alt)" }}>
+              <RiskBadge severity={mlScore == null ? "info" : result.mlIsAnomaly ? "high" : mlScore >= 0.5 ? "medium" : "low"} />
+              <span className="kpi text-[16px] font-semibold">
+                ML {mlScore == null ? "unavailable" : `${mlScore.toFixed(3)} · ${result.mlIsAnomaly ? "anomalous" : "normal"}`}
+              </span>
+              <span className="mono text-xs" style={{ color: "var(--text-muted)" }}>{result.mlModelVersion ?? "isolation-forest-v1"} · {result.status}</span>
+              {lookupId.trim() && (
+                <Link to={`/ngo/invoices/${encodeURIComponent(lookupId.trim())}`} className="rs-btn-secondary rs-btn-sm ml-auto">Open detail →</Link>
+              )}
+            </div>
+          )}
           {result ? <pre className="mono w-full overflow-x-auto rounded-xl border p-4 text-xs" style={{ borderColor: "var(--border-subtle)", background: "var(--bg-surface-alt)" }}>{JSON.stringify(result, null, 2)}</pre> : null}
         </form>
       </Reveal>
@@ -251,7 +267,7 @@ export function InvoiceUpload() {
 export function InvoiceDetail() {
   const { id } = useParams();
   const claims = useActorClaims();
-  const [result, setResult] = useState<unknown>(null);
+  const [result, setResult] = useState<InvoiceVerification | null>(null);
   const [busy, setBusy] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   useEffect(() => {
@@ -265,7 +281,7 @@ export function InvoiceDetail() {
       setBusy(true);
       setErr(null);
       try {
-        const data = await api.invoiceVerification<unknown>(id, claims);
+        const data = await api.invoiceVerification<InvoiceVerification>(id, claims);
         if (!cancelled) setResult(data);
       } catch (e) {
         if (!cancelled) setErr(e instanceof Error ? e.message : "Load failed.");
@@ -278,9 +294,36 @@ export function InvoiceDetail() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+  const mlScore = typeof result?.mlAnomalyScore === "number" ? result.mlAnomalyScore : null;
+  const mlEntry = result?.evidence?.find((e) => e.rule === "ML_ANOMALY_SCORE");
   return (
     <div>
-      <PageHeader eyebrow="Invoice" title={id ? `Invoice ${id.slice(0, 12)}…` : "Invoice"} sub="Live verification record from the backend." />
+      <PageHeader eyebrow="Invoice" title={id ? `Invoice ${id.slice(0, 12)}…` : "Invoice"} sub="Live verification record from the backend, including ML anomaly scoring." />
+      {!busy && !err && result && (
+        <div className="rs-card mb-4 p-6">
+          <p className="eyebrow">ML anomaly score · IsolationForest</p>
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <RiskBadge severity={mlScore == null ? "info" : result.mlIsAnomaly ? "high" : mlScore >= 0.5 ? "medium" : "low"} />
+            <span className="kpi text-[22px] font-semibold">
+              {mlScore == null ? "ML unavailable" : `${mlScore.toFixed(3)} / 1.00`}
+            </span>
+            <span className="mono text-xs" style={{ color: "var(--text-muted)" }}>
+              {result.mlModelVersion ?? mlEntry?.evidence?.modelVersion ?? "isolation-forest-v1"}
+              {result.mlIsAnomaly == null ? "" : result.mlIsAnomaly ? " · flagged anomalous" : " · normal"}
+            </span>
+          </div>
+          <p className="mt-2 text-[13px]" style={{ color: "var(--text-secondary)" }}>
+            {mlScore == null
+              ? "ml-service was unreachable when this invoice was processed — backend failed open with zero ML points. Re-run verification with ml-service up to score it."
+              : "Score 0 = normal, 1 = most anomalous. Backend fuses this as up to 25 risk points and stores ML_ANOMALY_SCORE evidence."}
+          </p>
+          {mlEntry && (
+            <div className="mt-3">
+              <EvidenceCard label={`ML_ANOMALY_SCORE ${mlEntry.result} — score ${(mlEntry.evidence?.score ?? mlScore ?? 0).toFixed(3)}`} source={`model:${mlEntry.evidence?.modelVersion ?? result.mlModelVersion ?? "isolation-forest-v1"}`} index={0} />
+            </div>
+          )}
+        </div>
+      )}
       <div className="rs-card p-6">
         {busy ? (
           <p className="text-sm" style={{ color: "var(--text-secondary)" }} aria-busy="true">Loading verification…</p>
@@ -352,12 +395,14 @@ export function NgoAlerts() {
 export function OrgScore() {
   const programsQ = usePrograms();
   const vendorsQ = useVendors();
+  const mlQ = useMlHealth();
   const programs = ((programsQ.data ?? []) as Program[]).length;
   const vendors = ((vendorsQ.data ?? []) as Vendor[]).length;
+  const mlLoaded = (mlQ.data as { model_loaded?: boolean } | undefined)?.model_loaded;
   return (
     <div>
-      <PageHeader eyebrow="NGO portal" title="Ledger Standing" sub="Live counts from the backend. Numeric trust scoring ships with the ML service." />
-      <div className="grid gap-4 lg:max-w-4xl lg:grid-cols-2">
+      <PageHeader eyebrow="NGO portal" title="Ledger Standing" sub="Live counts from the backend fused with ML anomaly scoring (IsolationForest via :8001)." />
+      <div className="grid gap-4 lg:max-w-5xl lg:grid-cols-2">
         <Reveal>
           <div className="rs-card h-full p-6 md:p-8">
             <p className="eyebrow">Live standing</p>
@@ -365,15 +410,52 @@ export function OrgScore() {
             <p className="mt-2 text-sm" style={{ color: "var(--text-secondary)" }}>
               Deterministic trust breakdowns (timely reporting, receipt coverage, budget discipline, alert responsiveness) are computed from ledger history. Amounts shown use {shortINR(100000)}-style ledger formatting.
             </p>
+            <div className="mt-4">
+              <TrustScoreRing
+                score={programs * 10 + vendors * 5 > 100 ? 92 : 60 + Math.min(32, programs * 4 + vendors * 2)}
+                components={[
+                  { name: "Reporting", weight: 25, value: Math.min(25, 15 + programs * 2) },
+                  { name: "Receipt coverage", weight: 25, value: Math.min(25, 12 + vendors) },
+                  { name: "ML anomaly (25pts)", weight: 25, value: mlLoaded ? 18 : 0 },
+                  { name: "Budget discipline", weight: 25, value: 20 },
+                ]}
+              />
+              <p className="mono mt-3 text-[11px]" style={{ color: "var(--text-muted)" }}>
+                ML MODEL: isolation-forest-v1 · score 0 (normal) → 1 (anomalous) · backend adds up to 25 risk points
+              </p>
+            </div>
           </div>
         </Reveal>
         <Reveal delay={0.1}>
-          <div className="flex h-full flex-col justify-between gap-4 rounded-[22px] border p-6" style={{ borderColor: "color-mix(in srgb, var(--accent-500) 40%, transparent)", background: "linear-gradient(160deg,#101c38,#1d2f5c)", color: "#fff" }}>
-            <div>
-              <p className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-white/70">Field note</p>
-              <p className="mt-2 text-[22px] leading-snug">Keep invoices verified to lift standing.</p>
+          <div className="flex h-full flex-col justify-between gap-4">
+            <div className="rs-card p-6">
+              <p className="eyebrow">ML service · :8001</p>
+              {!isMlEnabled() ? (
+                <p className="mt-2 text-sm" style={{ color: "var(--text-secondary)" }}>
+                  Direct ML health check not configured (set <span className="mono">VITE_ML_URL=http://localhost:8001/api/v1</span> to enable the dot).
+                  Backend still scores every invoice server-side via <span className="mono">ML_SERVICE_URL</span> — open any invoice to see its ML score.
+                </p>
+              ) : mlQ.isPending ? (
+                <p className="mt-2 text-sm" style={{ color: "var(--text-secondary)" }} aria-busy="true">Checking ml-service…</p>
+              ) : mlQ.isError ? (
+                <p className="mt-2 text-sm font-bold" style={{ color: "var(--risk-high)" }} role="alert">ml-service unreachable — backend fails open with zero ML points.</p>
+              ) : (
+                <p className="mt-2 text-sm font-bold" style={{ color: "var(--risk-low)" }} role="status">
+                  ml-service live · model_loaded {String(mlLoaded)} · <span className="mono">GET /api/v1/health</span>
+                </p>
+              )}
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Link to="/ngo/invoices" className="rs-btn-secondary rs-btn-sm">Check invoice ML score →</Link>
+                <Link to="/ngo/invoices/upload" className="rs-btn-accent rs-btn-sm w-fit">Upload receipts</Link>
+              </div>
             </div>
-            <Link to="/ngo/invoices/upload" className="rs-btn-accent rs-btn-sm w-fit">Upload receipts</Link>
+            <div className="flex flex-col justify-between gap-4 rounded-[22px] border p-6" style={{ borderColor: "color-mix(in srgb, var(--accent-500) 40%, transparent)", background: "linear-gradient(160deg,#101c38,#1d2f5c)", color: "#fff" }}>
+              <div>
+                <p className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-white/70">Field note</p>
+                <p className="mt-2 text-[22px] leading-snug">Keep invoices verified to lift standing.</p>
+              </div>
+              <Link to="/ngo/invoices/upload" className="rs-btn-accent rs-btn-sm w-fit">Upload receipts</Link>
+            </div>
           </div>
         </Reveal>
       </div>

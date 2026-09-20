@@ -233,13 +233,50 @@ class VerificationPipeline {
       'fraudAlerts',
       a => a.entityId === expense.id || proofs.some(p => p.id === a.entityId)
     );
+    // Build agent-ready ML + rule context from local records so the agent can
+    // score live even though its own backend fetch (expense verification)
+    // carries no amounts. All fields are optional for the agent contract.
+    let agentTransaction = null;
+    try {
+      const poForMl = invoice.poId ? this.repo.find('purchaseOrders', invoice.poId) : null;
+      const vendorForMl = invoice.vendorId ? this.repo.find('vendors', invoice.vendorId) : null;
+      agentTransaction = this.ml.buildInput({ invoice, purchaseOrder: poForMl, vendor: vendorForMl });
+    } catch {
+      agentTransaction = null;
+    }
+    const agentMlResult =
+      typeof invoice.mlAnomalyScore === 'number'
+        ? {
+            available: true,
+            status: 'available',
+            anomaly_score: invoice.mlAnomalyScore,
+            anomaly_signal: invoice.mlIsAnomaly ? 'anomalous' : 'normal',
+            model_version: invoice.mlModelVersion || 'isolation-forest-v1',
+          }
+        : null;
+    const agentRuleResults = [
+      ...alerts.slice(0, 20).map(a => ({
+        rule_id: String((a.evidence && (a.evidence.ruleId || a.evidence.rule_id)) || a.id),
+        status: a.severity === 'HIGH' ? 'fail' : a.severity === 'MEDIUM' ? 'warning' : 'pass',
+        message: String((a.evidence && a.evidence.message) || a.id),
+      })),
+      ...checks.slice(0, 20).map(c => ({
+        rule_id: String(c.checkType || c.rule || c.id),
+        status: c.result === 'FAIL' ? 'fail' : 'pass',
+        message: String(c.checkType || c.id),
+      })),
+    ];
     let result;
     if (this.agentUrl) {
       // Delegate to the AI agent orchestrator (backend verification + ML +
       // Bedrock), forwarding the caller's auth so the agent's own backend
       // reads stay authorized. Falls back to the local path on any failure.
       try {
-        result = await this.queryAgent(expenseId, question, opts.authHeader);
+        result = await this.queryAgent(expenseId, question, opts.authHeader, {
+          transaction: agentTransaction,
+          ml_result: agentMlResult,
+          rule_results: agentRuleResults,
+        });
       } catch {
         result = null;
       }
@@ -281,17 +318,21 @@ class VerificationPipeline {
     return result;
   }
 
-  async queryAgent(expenseId, question, authHeader) {
+  async queryAgent(expenseId, question, authHeader, extra = {}) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 15000);
     try {
+      const payload = { expense_id: expenseId, question };
+      if (extra.transaction) payload.transaction = extra.transaction;
+      if (extra.ml_result) payload.ml_result = extra.ml_result;
+      if (extra.rule_results && extra.rule_results.length > 0) payload.rule_results = extra.rule_results;
       const res = await fetch(`${this.agentUrl}/api/v1/verification/ai-query`, {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
           ...(authHeader ? { authorization: authHeader } : {}),
         },
-        body: JSON.stringify({ expense_id: expenseId, question }),
+        body: JSON.stringify(payload),
         signal: controller.signal,
       });
       if (!res.ok) return null;

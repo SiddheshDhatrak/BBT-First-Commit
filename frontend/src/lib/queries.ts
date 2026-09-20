@@ -3,7 +3,7 @@
 // Auth: Cognito access token from localStorage `rahatsetu_access_token`.
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, isApiEnabled, type ActorClaims } from "@/lib/api";
+import { agent, api, isAgentEnabled, isApiEnabled, isMlEnabled, ml, type ActorClaims } from "@/lib/api";
 import { useUI } from "@/lib/store";
 
 /** Actor claims for the signed-in user. Uses real Cognito tokens when available. */
@@ -283,6 +283,67 @@ export function useAgentAsk() {
   return useMutation({
     mutationFn: ({ expenseId, question }: { expenseId: string; question: string }) =>
       api.verificationAiQuery<unknown>({ expenseId, question }, claims).then(parseAgentAnswer),
+  });
+}
+
+export interface InvoiceVerification {
+  invoiceId: string;
+  status: string;
+  ocr?: unknown;
+  evidence?: { rule?: string; result?: string; evidence?: { score?: number; modelVersion?: string } }[];
+  mlAnomalyScore?: number | null;
+  mlIsAnomaly?: boolean | null;
+  mlModelVersion?: string | null;
+}
+
+export interface ExpenseVerification {
+  expenseId: string;
+  financial?: { invoiceId?: string; invoiceStatus?: string };
+  delivery?: { status?: string };
+  alerts?: unknown[];
+  riskScore?: { total?: number; components?: { mlAnomalyScore?: number } };
+  deliveryConfidence?: { level?: string };
+}
+
+export function useInvoiceVerification(id: string | undefined) {
+  const claims = useActorClaims();
+  return useQuery({
+    queryKey: ["live", "invoice-verification", id, claims.actorId],
+    queryFn: () => api.invoiceVerification<InvoiceVerification>(id as string, claims),
+    enabled: isApiEnabled() && !!id && signedIn(),
+    ...LIVE,
+  });
+}
+
+export function useExpenseVerification(id: string | undefined) {
+  const claims = useActorClaims();
+  return useQuery({
+    queryKey: ["live", "expense-verification", id, claims.actorId],
+    queryFn: () => api.expenseVerification<ExpenseVerification>(id as string, claims),
+    enabled: isApiEnabled() && !!id && signedIn(),
+    ...LIVE,
+  });
+}
+
+export function useAgentHealth() {
+  return useQuery({
+    queryKey: ["live", "agent-health"],
+    queryFn: () => agent.health<unknown>(),
+    enabled: isAgentEnabled(),
+    retry: false,
+    staleTime: 30_000,
+    gcTime: 5 * 60_000,
+  });
+}
+
+export function useMlHealth() {
+  return useQuery({
+    queryKey: ["live", "ml-health"],
+    queryFn: () => ml.health<unknown>(),
+    enabled: isMlEnabled(),
+    retry: false,
+    staleTime: 30_000,
+    gcTime: 5 * 60_000,
   });
 }
 

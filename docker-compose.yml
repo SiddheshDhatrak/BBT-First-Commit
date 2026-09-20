@@ -35,15 +35,26 @@ services:
     ports:
       - "3000:3000"
     env_file:
-      - ./backend/.env
+      - path: ./backend/.env
+        required: false
     environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: "3000"
+      REPOSITORY_DRIVER: ${REPOSITORY_DRIVER:-memory}
       DATABASE_URL: postgres://rahatsetu:rahatsetu@postgres:5432/rahatsetu
       DATABASE_SSL: "false"
+      FEATURE_DEMO_ROLE_HEADERS: "true"
+      FEATURE_MOCK_ADAPTERS: "true"
+      CORS_ORIGIN: "*"
       ML_SERVICE_URL: http://ml-service:8001
+      ML_TIMEOUT_MS: "5000"
+      AGENT_URL: http://ai-agent:8002
       BEDROCK_MODEL_ID: ${BEDROCK_MODEL_ID:-amazon.nova-lite-v1:0}
     depends_on:
       postgres:
         condition: service_healthy
+      ml-service:
+        condition: service_started
     restart: unless-stopped
 
   ml-service:
@@ -98,8 +109,13 @@ services:
     environment:
       VITE_API_URL: http://localhost:3000/api/v1
       VITE_AGENT_URL: http://localhost:8002/api/v1
+      VITE_ML_URL: http://localhost:8001/api/v1
     depends_on:
       backend:
+        condition: service_started
+      ai-agent:
+        condition: service_started
+      ml-service:
         condition: service_started
     restart: unless-stopped
 

@@ -7,6 +7,7 @@ import joblib
 import numpy as np
 import pandas as pd
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from src.features import engineer_features
@@ -47,6 +48,16 @@ def _load_artifacts():
 # Artifacts are loaded exactly once when this module starts, never per request.
 MODEL, FEATURE_COLUMNS, VENDOR_STATS = _load_artifacts()
 app = FastAPI(title="RahatSetu ML Service", version="1.0.0")
+# Browser health checks (ConnectionDot) need CORS; backend/agent use
+# server-side fetch and are unaffected. Keep permissive-methods, strict-origin
+# via env is unnecessary for a scoring-only service behind compose networking.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://localhost:3000", "http://localhost:8002"],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["content-type", "authorization"],
+)
 API_PREFIX = "/api/v1"
 
 
@@ -81,6 +92,11 @@ def _score_rows(invoices: list[InvoiceInput]) -> list[PredictionResponse]:
         )
         for invoice, score, prediction in zip(invoices, scores, predictions, strict=True)
     ]
+
+
+@app.get("/")
+def root() -> dict:
+    return {"service": "rahatsetu-ml-service", "version": "1.0.0", "docs": "/docs"}
 
 
 @app.get(f"{API_PREFIX}/health")

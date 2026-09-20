@@ -7,14 +7,31 @@
 import type { Role } from "@/lib/store";
 
 const RAW_BASE = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ?? "";
-const AGENT_BASE = (import.meta.env.VITE_AGENT_URL as string | undefined)?.replace(/\/$/, "") ?? "";
+const RAW_AGENT_BASE = (import.meta.env.VITE_AGENT_URL as string | undefined)?.replace(/\/$/, "") ?? "";
+// ML service base is derived: same origin mapping as backend is not assumed.
+// Browser never calls :8001 directly in the default flow (backend proxies ML);
+// VITE_ML_URL is optional and only used for the health dot.
+const RAW_ML_BASE = (import.meta.env.VITE_ML_URL as string | undefined)?.replace(/\/$/, "") ?? "";
 
 // Single normalization point: every call below uses API, so VITE_API_URL
-// works with or without the /api/v1 suffix.
+// works with or without the /api/v1 suffix. Same for the agent base.
 const API = RAW_BASE.endsWith("/api/v1") ? RAW_BASE : `${RAW_BASE}/api/v1`;
+const AGENT_BASE = RAW_AGENT_BASE.endsWith("/api/v1")
+  ? RAW_AGENT_BASE
+  : RAW_AGENT_BASE
+    ? `${RAW_AGENT_BASE}/api/v1`
+    : "";
+const ML_BASE = RAW_ML_BASE.endsWith("/api/v1")
+  ? RAW_ML_BASE
+  : RAW_ML_BASE
+    ? `${RAW_ML_BASE}/api/v1`
+    : "";
 
 export const isApiEnabled = () => RAW_BASE.length > 0;
-export const isAgentEnabled = () => AGENT_BASE.length > 0;
+export const isAgentEnabled = () => RAW_AGENT_BASE.length > 0;
+export const isMlEnabled = () => RAW_ML_BASE.length > 0;
+export const mlBaseUrl = () => ML_BASE;
+export const agentBaseUrl = () => AGENT_BASE;
 
 export function requireApi() {
   if (!isApiEnabled()) throw new Error("Backend is not configured: set VITE_API_URL.");
@@ -106,11 +123,20 @@ async function request<T>(path: string, claims: ActorClaims, init: RequestInit =
   return res.json() as Promise<T>;
 }
 
-async function agentRequest<T>(path: string, body: unknown): Promise<T> {
+async function agentRequest<T>(path: string, body: unknown, claims?: ActorClaims): Promise<T> {
   if (!isAgentEnabled()) throw new Error("Agent is not configured: set VITE_AGENT_URL.");
+  const h: Record<string, string> = { "content-type": "application/json" };
+  // Forward actor context when available so the agent's backend reads stay
+  // authorized; backend-routed Copilot remains the default path.
+  if (claims) {
+    h["x-role"] = toBackendRole(claims.role);
+    h["x-actor-id"] = claims.actorId;
+    if (claims.orgId) h["x-org-id"] = claims.orgId;
+    if (claims.accessToken) h["authorization"] = `Bearer ${claims.accessToken}`;
+  }
   const res = await fetch(`${AGENT_BASE}${path}`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: h,
     body: JSON.stringify(body ?? {}),
   });
   if (!res.ok) {
@@ -121,16 +147,23 @@ async function agentRequest<T>(path: string, body: unknown): Promise<T> {
 }
 
 export const agent = {
-  health: () => {
+  health: <T,>() => {
     if (!isAgentEnabled()) throw new Error("Agent disabled.");
-    return fetch(`${AGENT_BASE}/health`).then((r) => { if (!r.ok) throw new Error(`agent health ${r.status}`); return r.json(); });
+    return fetch(`${AGENT_BASE}/health`).then((r) => { if (!r.ok) throw new Error(`agent health ${r.status}`); return r.json() as Promise<T>; });
   },
   /** Standalone structured analysis: POST /api/v1/analyze */
-  analyze: <T,>(body: unknown): Promise<T> => agentRequest(`/analyze`, body),
+  analyze: <T,>(body: unknown, claims?: ActorClaims): Promise<T> => agentRequest(`/analyze`, body, claims),
   /** Expense-scoped query, aligned with backend verification route. */
-  aiQuery: <T,>(body: unknown): Promise<T> => agentRequest(`/verification/ai-query`, body),
+  aiQuery: <T,>(body: unknown, claims?: ActorClaims): Promise<T> => agentRequest(`/verification/ai-query`, body, claims),
   /** Backend audit-concept compatibility route. */
-  aiAudit: <T,>(body: unknown): Promise<T> => agentRequest(`/ai/audit`, body),
+  aiAudit: <T,>(body: unknown, claims?: ActorClaims): Promise<T> => agentRequest(`/ai/audit`, body, claims),
+};
+
+export const ml = {
+  health: <T,>() => {
+    if (!isMlEnabled()) throw new Error("ML disabled.");
+    return fetch(`${ML_BASE}/health`).then((r) => { if (!r.ok) throw new Error(`ml health ${r.status}`); return r.json() as Promise<T>; });
+  },
 };
 
 export const api = {

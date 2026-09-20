@@ -64,7 +64,7 @@ function createApp({ repository, config } = {}) {
   const relief = createReliefService(repo, audit);
   const delivery = createDeliveryService(repo, audit);
   const oversight = createOversightService(repo, audit);
-  const demo = createDemoService(repo, relief, delivery);
+  const demo = createDemoService(repo, relief, delivery, adapters);
   const auth = createAuthService(cfg, repo);
   const { createAuthRoutes } = require('./modules/auth/routes');
   const app = express();
@@ -352,6 +352,12 @@ function createApp({ repository, config } = {}) {
           status: invoice.status,
           ocr: invoice.ocrJson,
           evidence: invoice.verificationEvidence,
+          // Live ML anomaly output persisted by the verification pipeline.
+          // Absent (null) when ml-service was unreachable at process time.
+          mlAnomalyScore:
+            typeof invoice.mlAnomalyScore === 'number' ? invoice.mlAnomalyScore : null,
+          mlIsAnomaly: typeof invoice.mlIsAnomaly === 'boolean' ? invoice.mlIsAnomaly : null,
+          mlModelVersion: invoice.mlModelVersion || null,
         },
       };
     })
@@ -490,7 +496,7 @@ function createApp({ repository, config } = {}) {
     router.add(
       'POST',
       '/api/v1/demo/ghost-delivery',
-      withRole([roles.GOVT], ({ actor }) => ({ body: demo.runGhostDelivery(actor) }))
+      withRole([roles.GOVT], async ({ actor }) => ({ body: await demo.runGhostDelivery(actor) }))
     );
   }
 
@@ -561,6 +567,11 @@ function createApp({ repository, config } = {}) {
           ocr: invoice.ocrJson,
           evidence: invoice.verificationEvidence,
           s3Key: invoice.fileS3Key,
+          // Mirror the ML fields so pipeline status and verification views stay in sync.
+          mlAnomalyScore:
+            typeof invoice.mlAnomalyScore === 'number' ? invoice.mlAnomalyScore : null,
+          mlIsAnomaly: typeof invoice.mlIsAnomaly === 'boolean' ? invoice.mlIsAnomaly : null,
+          mlModelVersion: invoice.mlModelVersion || null,
         },
       };
     })

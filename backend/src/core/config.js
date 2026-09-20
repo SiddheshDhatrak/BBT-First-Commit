@@ -14,6 +14,7 @@ const DEFAULTS = {
   FEATURE_DEMO_ROLE_HEADERS: 'true',
   FEATURE_MOCK_ADAPTERS: 'true',
   ML_SERVICE_URL: '',
+  ML_TIMEOUT_MS: '5000',
   AGENT_URL: '',
 };
 

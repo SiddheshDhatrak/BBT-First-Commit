@@ -1,10 +1,10 @@
-function createDemoService(repo, relief, delivery) {
+function createDemoService(repo, relief, delivery, adapters = {}) {
   const CAMPAIGN_ID = 'af97d970-d33f-5577-86ea-cc96b990b17b';
   const PROGRAM_ID = '42a567ca-bfd8-5467-8a40-0db3963a4a19';
   const CATEGORY_ID = '3f2eb263-14bb-55b6-8efa-943adb8c80b4';
   const ORG_ID = '990968b6-0e2c-5fcb-8d6a-dc9847a210c2';
 
-  function runGhostDelivery(actor) {
+  async function runGhostDelivery(actor) {
     const existing = repo.first('expenses', expense => expense.demoScenario === 'GHOST_DELIVERY');
     if (existing)
       return {
@@ -43,6 +43,38 @@ function createDemoService(repo, relief, delivery) {
       },
       ngo
     );
+    // Live ML scoring for the demo invoice (fail-open): mirrors the
+    // verification pipeline so ghost-delivery also demonstrates the ML
+    // anomaly component end to end. Awaited with the adapter's own timeout;
+    // any failure falls back to zero ML points without blocking the demo.
+    try {
+      const ml = adapters.ml;
+      if (ml && ml.configured) {
+        const vendorForMl = repo.find('vendors', invoice.vendorId);
+        const scored = await ml.scoreInvoice(
+          ml.buildInput({ invoice, purchaseOrder: po, vendor: vendorForMl })
+        );
+        if (scored) {
+          const current = repo.find('invoices', invoice.id);
+          const evidence = Array.isArray(current.verificationEvidence)
+            ? current.verificationEvidence.slice()
+            : [];
+          evidence.push({
+            rule: 'ML_ANOMALY_SCORE',
+            result: scored.isAnomaly ? 'FAIL' : 'PASS',
+            evidence: { score: scored.score, modelVersion: scored.modelVersion },
+          });
+          repo.update('invoices', invoice.id, {
+            verificationEvidence: evidence,
+            mlAnomalyScore: scored.score,
+            mlIsAnomaly: scored.isAnomaly,
+            mlModelVersion: scored.modelVersion,
+          });
+        }
+      }
+    } catch {
+      // fail-open: demo proceeds without ML points
+    }
     const expense = relief.createExpense(
       { invoiceId: invoice.id, budgetCategoryId: categoryId },
       ngo

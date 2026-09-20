@@ -42,6 +42,7 @@ class MLAdapter {
     if (!this.configured) return null;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    const started = Date.now();
     try {
       const res = await fetch(`${this.baseUrl}/api/v1/predict`, {
         method: 'POST',
@@ -49,7 +50,20 @@ class MLAdapter {
         body: JSON.stringify(input),
         signal: controller.signal,
       });
-      if (!res.ok) return null;
+      if (!res.ok) {
+        if (process.env.LOG_LEVEL !== 'silent') {
+          console.warn(
+            JSON.stringify({
+              level: 'warn',
+              msg: 'ml_service_predict_failed',
+              invoiceId: input && input.invoice_id,
+              status: res.status,
+              latencyMs: Date.now() - started,
+            })
+          );
+        }
+        return null;
+      }
       const data = await res.json().catch(() => null);
       if (!data || typeof data.ml_anomaly_score !== 'number') return null;
       return {
@@ -57,7 +71,19 @@ class MLAdapter {
         isAnomaly: !!data.is_anomaly,
         modelVersion: data.model_version || 'isolation-forest-v1',
       };
-    } catch {
+    } catch (err) {
+      // Fail-open by design: callers fall back to a zero ML component.
+      if (process.env.LOG_LEVEL !== 'silent') {
+        console.warn(
+          JSON.stringify({
+            level: 'warn',
+            msg: 'ml_service_unreachable',
+            invoiceId: input && input.invoice_id,
+            error: err && err.name ? err.name : 'fetch_error',
+            latencyMs: Date.now() - started,
+          })
+        );
+      }
       return null;
     } finally {
       clearTimeout(timer);
