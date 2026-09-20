@@ -64,6 +64,7 @@ const operation = ({
       content: { 'application/json': { schema: { $ref: '#/components/schemas/Record' } } },
     },
     400: { $ref: '#/components/responses/BadRequest' },
+    ...(roles ? { 401: { $ref: '#/components/responses/Unauthorized' } } : {}),
     ...(roles ? { 403: { $ref: '#/components/responses/Forbidden' } } : {}),
     404: { $ref: '#/components/responses/NotFound' },
     409: { $ref: '#/components/responses/Conflict' },
@@ -98,6 +99,7 @@ const openapi = {
       description: 'Mock S3, Textract, and Bedrock-backed verification endpoints.',
     },
     { name: 'Demo', description: 'Synthetic end-to-end scenario.' },
+    { name: 'Auth', description: 'Registration, login, tokens, and user management (Cognito-backed).' },
   ],
   paths: {
     [`${apiBase}/health`]: { get: operation({ summary: 'Get service health', tags: ['System'] }) },
@@ -105,7 +107,131 @@ const openapi = {
       get: operation({ summary: 'Get dependency readiness', tags: ['System'] }),
     },
 
+    [`${apiBase}/auth/register`]: {
+      post: operation({
+        summary: 'Register a user (DONOR instant; NGO/VENDOR pending; FIELD/GOVT need invite)',
+        tags: ['Auth'],
+        created: true,
+        body: { $ref: '#/components/schemas/AuthRegister' },
+        example: { email: 'donor@example.org', password: 's3cure-pass', name: 'Test Donor', role: 'DONOR' },
+      }),
+    },
+    [`${apiBase}/auth/login`]: {
+      post: operation({
+        summary: 'Sign in and receive tokens',
+        tags: ['Auth'],
+        body: { $ref: '#/components/schemas/AuthLogin' },
+        example: { email: 'donor@example.org', password: 's3cure-pass' },
+      }),
+    },
+    [`${apiBase}/auth/verify-email`]: {
+      post: operation({
+        summary: 'Confirm email with a 6-digit code',
+        tags: ['Auth'],
+        body: { $ref: '#/components/schemas/AuthCode' },
+      }),
+    },
+    [`${apiBase}/auth/resend-verification`]: {
+      post: operation({
+        summary: 'Resend the email verification code',
+        tags: ['Auth'],
+        body: { $ref: '#/components/schemas/AuthCode' },
+      }),
+    },
+    [`${apiBase}/auth/forgot-password`]: {
+      post: operation({
+        summary: 'Start a password reset',
+        tags: ['Auth'],
+        body: { $ref: '#/components/schemas/AuthCode' },
+      }),
+    },
+    [`${apiBase}/auth/reset-password`]: {
+      post: operation({
+        summary: 'Complete a password reset with code + new password',
+        tags: ['Auth'],
+        body: { $ref: '#/components/schemas/AuthPasswordReset' },
+      }),
+    },
+    [`${apiBase}/auth/refresh`]: {
+      post: operation({
+        summary: 'Exchange a refresh token for new tokens',
+        tags: ['Auth'],
+        body: { $ref: '#/components/schemas/AuthRefresh' },
+      }),
+    },
+    [`${apiBase}/auth/logout`]: {
+      post: operation({
+        summary: 'Sign out (revokes server-side session)',
+        tags: ['Auth'],
+        roles: ['DONOR', 'NGO', 'VENDOR', 'FIELD', 'GOVT'],
+      }),
+    },
+    [`${apiBase}/auth/me`]: {
+      get: operation({
+        summary: 'Get the current user profile',
+        tags: ['Auth'],
+        roles: ['DONOR', 'NGO', 'VENDOR', 'FIELD', 'GOVT'],
+      }),
+    },
+    [`${apiBase}/auth/users`]: {
+      get: operation({
+        summary: 'List users (GOVT; used for the approval queue)',
+        tags: ['Auth'],
+        roles: ['GOVT'],
+      }),
+    },
+    [`${apiBase}/auth/users/{id}`]: {
+      get: operation({
+        summary: 'Get a user (self or GOVT)',
+        tags: ['Auth'],
+        roles: ['DONOR', 'NGO', 'VENDOR', 'FIELD', 'GOVT'],
+        parameters: [idParameter('id', 'User ID')],
+      }),
+      patch: operation({
+        summary: 'Update own profile (name, organization; never role)',
+        tags: ['Auth'],
+        roles: ['DONOR', 'NGO', 'VENDOR', 'FIELD', 'GOVT'],
+        parameters: [idParameter('id', 'User ID')],
+      }),
+      delete: operation({
+        summary: 'Delete a user (self or GOVT)',
+        tags: ['Auth'],
+        roles: ['DONOR', 'NGO', 'VENDOR', 'FIELD', 'GOVT'],
+        parameters: [idParameter('id', 'User ID')],
+      }),
+    },
+    [`${apiBase}/auth/change-password`]: {
+      post: operation({
+        summary: 'Change password (authenticated)',
+        tags: ['Auth'],
+        roles: ['DONOR', 'NGO', 'VENDOR', 'FIELD', 'GOVT'],
+      }),
+    },
+    [`${apiBase}/auth/assign-role`]: {
+      post: operation({
+        summary: 'Assign a group/role, e.g. approving a PENDING registration (GOVT)',
+        tags: ['Auth'],
+        roles: ['GOVT'],
+        body: { $ref: '#/components/schemas/AuthRoleAssign' },
+        example: { userId: 'user-uuid', role: 'NGO' },
+      }),
+    },
+    [`${apiBase}/auth/invites`]: {
+      post: operation({
+        summary: 'Issue a single-use FIELD/GOVT invitation (GOVT)',
+        tags: ['Auth'],
+        roles: ['GOVT'],
+        created: true,
+        body: { $ref: '#/components/schemas/AuthInvite' },
+        example: { email: 'auditor@example.org', role: 'FIELD' },
+      }),
+    },
+
     [`${apiBase}/disasters`]: {
+      get: operation({
+        summary: 'List disasters (public)',
+        tags: ['Relief funds'],
+      }),
       post: operation({
         summary: 'Create a disaster',
         tags: ['Relief funds'],
@@ -124,6 +250,10 @@ const openapi = {
       }),
     },
     [`${apiBase}/campaigns`]: {
+      get: operation({
+        summary: 'List campaigns (public)',
+        tags: ['Relief funds'],
+      }),
       post: operation({
         summary: 'Create a relief campaign',
         tags: ['Relief funds'],
@@ -170,7 +300,19 @@ const openapi = {
         parameters: [idParameter('id', 'Donation ID')],
       }),
     },
+    [`${apiBase}/donations`]: {
+      get: operation({
+        summary: 'List own donations (GOVT sees all)',
+        tags: ['Relief funds'],
+        roles: ['DONOR', 'GOVT'],
+      }),
+    },
     [`${apiBase}/organizations`]: {
+      get: operation({
+        summary: 'List organizations',
+        tags: ['Relief funds'],
+        roles: ['NGO', 'VENDOR', 'GOVT'],
+      }),
       post: operation({
         summary: 'Create an organization',
         tags: ['Relief funds'],
@@ -181,6 +323,11 @@ const openapi = {
       }),
     },
     [`${apiBase}/programs`]: {
+      get: operation({
+        summary: 'List programs',
+        tags: ['Relief funds'],
+        roles: ['NGO', 'VENDOR', 'GOVT'],
+      }),
       post: operation({
         summary: 'Create an organization program',
         tags: ['Relief funds'],
@@ -210,10 +357,15 @@ const openapi = {
       }),
     },
     [`${apiBase}/vendors`]: {
+      get: operation({
+        summary: 'List vendors',
+        tags: ['Relief funds'],
+        roles: ['NGO', 'VENDOR', 'GOVT'],
+      }),
       post: operation({
         summary: 'Create a vendor',
         tags: ['Relief funds'],
-        roles: ['NGO'],
+        roles: ['NGO', 'VENDOR', 'GOVT'],
         created: true,
         body: { $ref: '#/components/schemas/VendorInput' },
         example: { name: 'Demo Food Supplies Pvt Ltd', gstin: 'SYNTHETIC-VENDOR-GSTIN' },
@@ -223,7 +375,7 @@ const openapi = {
       post: operation({
         summary: 'Add a vendor bank account',
         tags: ['Relief funds'],
-        roles: ['NGO'],
+        roles: ['NGO', 'VENDOR'],
         created: true,
         parameters: [idParameter('id', 'Vendor ID')],
         body: { $ref: '#/components/schemas/BankAccountInput' },
@@ -236,7 +388,7 @@ const openapi = {
       get: operation({
         summary: 'List active vendor bank accounts',
         tags: ['Relief funds'],
-        roles: ['NGO', 'GOVT'],
+        roles: ['NGO', 'VENDOR', 'GOVT'],
         parameters: [idParameter('id', 'Vendor ID')],
       }),
     },
@@ -262,7 +414,7 @@ const openapi = {
         description:
           'This MVP accepts invoice metadata JSON; production upload and malware validation belong to the storage adapter.',
         tags: ['Relief funds'],
-        roles: ['NGO'],
+        roles: ['NGO', 'VENDOR'],
         created: true,
         body: { $ref: '#/components/schemas/InvoiceInput' },
         example: {
@@ -279,7 +431,7 @@ const openapi = {
       get: operation({
         summary: 'Get invoice verification evidence',
         tags: ['Relief funds'],
-        roles: ['NGO', 'GOVT'],
+        roles: ['NGO', 'VENDOR', 'GOVT'],
         parameters: [idParameter('id', 'Invoice ID')],
       }),
     },
@@ -310,7 +462,7 @@ const openapi = {
       get: operation({
         summary: 'Get combined financial and delivery verification',
         tags: ['Oversight'],
-        roles: ['NGO', 'GOVT'],
+        roles: ['NGO', 'VENDOR', 'GOVT'],
         parameters: [idParameter('id', 'Expense ID')],
       }),
     },
@@ -478,7 +630,7 @@ const openapi = {
       post: operation({
         summary: 'Upload and verify an invoice through the pipeline',
         tags: ['Verification pipeline'],
-        roles: ['NGO', 'GOVT'],
+        roles: ['NGO', 'VENDOR', 'GOVT'],
         created: true,
         parameters: [idParameter('id', 'Existing invoice ID')],
         body: { $ref: '#/components/schemas/PipelineInvoiceInput' },
@@ -511,7 +663,7 @@ const openapi = {
       get: operation({
         summary: 'Get invoice pipeline status',
         tags: ['Verification pipeline'],
-        roles: ['NGO', 'GOVT'],
+        roles: ['NGO', 'VENDOR', 'GOVT'],
         parameters: [idParameter('id', 'Invoice ID')],
       }),
     },
@@ -536,7 +688,7 @@ const openapi = {
       get: operation({
         summary: 'Get a mock signed S3 URL',
         tags: ['Verification pipeline'],
-        roles: ['NGO', 'GOVT'],
+        roles: ['NGO', 'VENDOR', 'GOVT'],
         parameters: [
           {
             name: 'bucket',
@@ -598,6 +750,10 @@ const openapi = {
         description: 'Role or organization access denied.',
         content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
       },
+      Unauthorized: {
+        description: 'Missing, invalid, or expired credentials.',
+        content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
+      },
       NotFound: {
         description: 'Referenced resource was not found.',
         content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
@@ -612,6 +768,64 @@ const openapi = {
         type: 'object',
         description: 'Response shape varies by resource. All persisted records include an `id`.',
         additionalProperties: true,
+      },
+      AuthRegister: {
+        type: 'object',
+        required: ['email', 'password', 'name'],
+        properties: {
+          email: { type: 'string', format: 'email' },
+          password: { type: 'string', minLength: 8, maxLength: 128 },
+          name: { type: 'string', minLength: 2, maxLength: 100 },
+          role: { type: 'string', enum: ['DONOR', 'NGO', 'VENDOR', 'FIELD', 'GOVT'], default: 'DONOR', description: 'FIELD/GOVT require an invitationToken; NGO/VENDOR register as PENDING.' },
+          organizationId: { type: 'string', format: 'uuid' },
+          invitationToken: { type: 'string', description: 'Single-use GOVT-issued token for FIELD/GOVT roles.' },
+        },
+      },
+      AuthLogin: {
+        type: 'object',
+        required: ['email', 'password'],
+        properties: {
+          email: { type: 'string', format: 'email' },
+          password: { type: 'string' },
+        },
+      },
+      AuthCode: {
+        type: 'object',
+        required: ['email', 'code'],
+        properties: {
+          email: { type: 'string', format: 'email' },
+          code: { type: 'string', description: '6-digit numeric code.' },
+        },
+      },
+      AuthRefresh: {
+        type: 'object',
+        required: ['refreshToken'],
+        properties: { refreshToken: { type: 'string' } },
+      },
+      AuthPasswordReset: {
+        type: 'object',
+        required: ['email', 'code', 'newPassword'],
+        properties: {
+          email: { type: 'string', format: 'email' },
+          code: { type: 'string' },
+          newPassword: { type: 'string', minLength: 8, maxLength: 128 },
+        },
+      },
+      AuthInvite: {
+        type: 'object',
+        required: ['email', 'role'],
+        properties: {
+          email: { type: 'string', format: 'email' },
+          role: { type: 'string', enum: ['FIELD', 'GOVT'] },
+        },
+      },
+      AuthRoleAssign: {
+        type: 'object',
+        required: ['userId', 'role'],
+        properties: {
+          userId: { type: 'string' },
+          role: { type: 'string', enum: ['DONOR', 'NGO', 'VENDOR', 'FIELD', 'GOVT'] },
+        },
       },
       Error: {
         type: 'object',
