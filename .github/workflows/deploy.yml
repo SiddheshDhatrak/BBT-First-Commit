@@ -138,12 +138,11 @@ jobs:
           
           curl -f "https://$SERVICE_URL/api/v1/ready"
 
-  # Build and deploy frontend to Amplify (optional - only runs if AMPLIFY_APP_ID is set)
+  # Build and deploy frontend to Amplify (runs always, skips deploy if AMPLIFY_APP_ID not set)
   deploy-frontend:
     needs: deploy-backend
     runs-on: ubuntu-latest
     environment: production
-    if: secrets.AMPLIFY_APP_ID
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -223,7 +222,7 @@ jobs:
 
   # Final verification
   verify:
-    needs: deploy-backend
+    needs: [deploy-backend, deploy-frontend]
     if: ${{ always() && needs.deploy-backend.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
