@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import { motion } from "motion/react";
 import { ArrowRight, ArrowUpRight, BadgeCheck, TrendingUp, Landmark, FileCheck2, Eye } from "lucide-react";
-import { formatINR, formatNumber } from "@/lib/format";
+import { formatINR, formatNumber, shortINR } from "@/lib/format";
 import { strings } from "@/lib/strings";
 import { PageHeader } from "@/components/composite/Chrome";
 import { CountUp } from "@/components/luxe/CountUp";
@@ -10,13 +10,6 @@ import { TrustTicker } from "@/components/luxe/TrustTicker";
 import { ScrollStage } from "@/components/luxe/ScrollStage";
 import { TiltCard } from "@/components/viz/Depth";
 import { usePublicMetrics } from "@/lib/queries";
-
-export function shortINR(v: number): string {
-  if (v >= 10000000) return `₹${(v / 10000000).toFixed(2)} Cr`;
-  if (v >= 100000) return `₹${(v / 100000).toFixed(1)} L`;
-  if (v >= 1000) return `₹${(v / 1000).toFixed(1)}K`;
-  return formatINR(v);
-}
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 

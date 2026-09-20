@@ -1,12 +1,5 @@
-import { formatINR, formatNumber } from "@/lib/format";
+import { formatNumber, shortINR } from "@/lib/format";
 import { usePublicMetrics } from "@/lib/queries";
-
-function shortINR(v: number): string {
-  if (v >= 10000000) return `₹${(v / 10000000).toFixed(2)} Cr`;
-  if (v >= 100000) return `₹${(v / 100000).toFixed(1)} L`;
-  if (v >= 1000) return `₹${(v / 1000).toFixed(1)}K`;
-  return formatINR(v);
-}
 
 /** Live trust ticker — renders only from backend ledger data. */
 export function TrustTicker() {

@@ -12,17 +12,16 @@ export function CountUp({
   duration?: number;
   className?: string;
 }) {
-  const [val, setVal] = useState(0);
+  const prefersReduced =
+    typeof window !== "undefined" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const [val, setVal] = useState(prefersReduced ? to : 0);
   const ref = useRef<HTMLSpanElement>(null);
   const started = useRef(false);
 
   useEffect(() => {
     const el = ref.current;
-    if (!el) return;
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      setVal(to);
-      return;
-    }
+    if (!el || prefersReduced) return;
     const io = new IntersectionObserver(
       (entries) => {
         if (entries[0].isIntersecting && !started.current) {
@@ -42,7 +41,7 @@ export function CountUp({
     );
     io.observe(el);
     return () => io.disconnect();
-  }, [to, duration]);
+  }, [to, duration, prefersReduced]);
 
   return (
     <span ref={ref} className={className}>

@@ -1,12 +1,14 @@
 import { lazy, Suspense, useEffect } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { AppShell, PublicShell } from "@/layouts/Shells";
+import { BackendRequired } from "@/components/composite/Chrome";
 import { Landing, Methodology } from "@/routes/Public";
 import { OrgProfile, DonorHome } from "@/routes/Dashboard";
 import { DonateFlow, MyDonations, LineageDetail } from "@/routes/Donor";
 import { Login, Register, Pending } from "@/routes/Auth";
 import { useUI, type Role } from "@/lib/store";
 import { auth } from "@/lib/auth";
+import { isApiEnabled } from "@/lib/api";
 
 function AuthBootstrap() {
   const setUser = useUI((s) => s.setUser);
@@ -139,6 +141,9 @@ export default function App() {
     <BrowserRouter>
       <AuthBootstrap />
       <ScrollToTop />
+      {!isApiEnabled() ? (
+        <BackendRequired />
+      ) : (
       <Suspense fallback={<Fallback />}>
         <Routes>
           <Route element={<PublicShell />}>
@@ -192,6 +197,7 @@ export default function App() {
           <Route path="*" element={<MISC.NotFound />} />
         </Routes>
       </Suspense>
+      )}
     </BrowserRouter>
   );
 }

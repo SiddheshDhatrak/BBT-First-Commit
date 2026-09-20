@@ -8,7 +8,7 @@ import { PageHeader } from "@/components/composite/Chrome";
 import { EvidenceCard, RiskBadge, SignalBanner } from "@/components/composite/Risk";
 import { Reveal, Stagger, StaggerItem } from "@/components/luxe/Reveal";
 import { IsoBars } from "@/components/viz/Depth";
-import { shortINR } from "@/routes/Public";
+import { shortINR } from "@/lib/format";
 
 interface GovExpense { expenseId: string; riskScore?: { total?: number }; delivery?: { status?: string }; alerts?: { id: string }[] }
 
@@ -249,18 +249,19 @@ export function Copilot() {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const bottom = useRef<HTMLDivElement>(null);
+  const msgSeq = useRef(0);
   useEffect(() => { bottom.current?.scrollIntoView({ behavior: "smooth", block: "end" }); }, [msgs, busy]);
 
   const ask = async (q: string) => {
     const text = q.trim();
     if (!text || busy) return;
     if (!isAgentEnabled()) {
-      const id = `m-${Date.now()}`;
+      const id = `m-${++msgSeq.current}`;
       setMsgs((m) => [...m, { id, q: text, a: "AI agent is not configured — set VITE_AGENT_URL to enable live analysis.", cites: [] }]);
       return;
     }
     setBusy(true);
-    const id = `m-${Date.now()}`;
+    const id = `m-${++msgSeq.current}`;
     setMsgs((m) => [...m, { id, q: text, a: "", cites: [] }]);
     setInput("");
     try {

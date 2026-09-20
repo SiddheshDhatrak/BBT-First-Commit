@@ -16,7 +16,7 @@ import { PageHeader } from "@/components/composite/Chrome";
 import { PipelineStepper } from "@/components/composite/Viz";
 import { CountUp } from "@/components/luxe/CountUp";
 import { Reveal, Stagger, StaggerItem } from "@/components/luxe/Reveal";
-import { shortINR } from "@/routes/Public";
+import { shortINR } from "@/lib/format";
 
 interface Org { id: string; name: string }
 interface Program { id: string; name: string; organizationId?: string; campaignId?: string; status?: string }

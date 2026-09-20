@@ -1,14 +1,13 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowUpRight, Award } from "lucide-react";
-import { formatINR } from "@/lib/format";
+import { formatINR, shortINR } from "@/lib/format";
 import { useCampaigns, useOrganizations, usePublicMetrics, type PublicMetrics } from "@/lib/queries";
 import { PageHeader } from "@/components/composite/Chrome";
 import { CountUp } from "@/components/luxe/CountUp";
 import { Reveal, Stagger, StaggerItem } from "@/components/luxe/Reveal";
 import { TiltCard } from "@/components/viz/Depth";
 import { IsoBarChart } from "@/components/viz/IsoBarChart";
-import { shortINR } from "@/routes/Public";
 
 const BAR_COLORS = ["#2456D6", "#2E7CF6", "#0F7A52", "#0F6D8A"];
 

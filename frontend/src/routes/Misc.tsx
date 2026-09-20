@@ -1,12 +1,11 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowRight, CheckCircle2, FileCheck2, Landmark } from "lucide-react";
-import { maskBank, formatINR } from "@/lib/format";
+import { maskBank, formatINR, shortINR } from "@/lib/format";
 import { api } from "@/lib/api";
 import { useActorClaims, useFraudAlerts, useOrganizations, usePayExpense, useVendors, type LiveAlert } from "@/lib/queries";
 import { PageHeader } from "@/components/composite/Chrome";
 import { Reveal, Stagger, StaggerItem } from "@/components/luxe/Reveal";
-import { shortINR } from "@/routes/Public";
 
 interface Vendor { id: string; name: string; status?: string }
 interface Org { id: string; name: string }

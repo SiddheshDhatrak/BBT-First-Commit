@@ -11,7 +11,8 @@ import { ConnectionDot } from "@/components/composite/ConnectionDot";
 import { Logo } from "@/components/brand/Logo";
 import { useLenis } from "@/components/luxe/useLenis";
 import { useUI, type Role } from "@/lib/store";
-import { alerts } from "@/lib/mock";
+import { auth } from "@/lib/auth";
+import { useFraudAlerts, type LiveAlert } from "@/lib/queries";
 
 const NAV_BY_ROLE: Record<Role, { to: string; label: string; hint: string; icon: typeof Home }[]> = {
   donor: [
@@ -50,6 +51,10 @@ const NAV_BY_ROLE: Record<Role, { to: string; label: string; hint: string; icon:
     { to: "/admin/users", label: "Users & Roles", hint: "Access", icon: Users },
     { to: "/admin/rules", label: "Rule Thresholds", hint: "Tune", icon: Scale },
   ],
+  pending: [
+    { to: "/pending", label: "Pending Approval", hint: "Status", icon: ShieldCheck },
+    { to: "/dashboard", label: "Public Dashboard", hint: "Transparency", icon: LayoutDashboard },
+  ],
   guest: [
     { to: "/dashboard", label: "Public Dashboard", hint: "Transparency", icon: LayoutDashboard },
     { to: "/donate", label: "Donate", hint: "Give", icon: HandCoins },
@@ -78,8 +83,12 @@ export function PublicShell() {
   }, []);
 
   // Drawer hygiene: close on route change, Escape closes, lock scroll, focus close btn
+  const lastPath = useRef(location.pathname);
   useEffect(() => {
-    setOpen(false);
+    if (lastPath.current !== location.pathname) {
+      lastPath.current = location.pathname;
+      setOpen(false);
+    }
   }, [location.pathname]);
   useEffect(() => {
     if (!open) return;
@@ -246,20 +255,29 @@ export function AppShell() {
   }, [toggleSidebar, setMobileNav]);
 
   const displayName = user?.name ?? role.charAt(0).toUpperCase() + role.slice(1);
-  const displayEmail = user?.email ?? `${role}@rahatsetu.demo`;
+  const displayEmail = user?.email ?? "Not signed in";
   const initial = (displayName.trim().charAt(0) || role.charAt(0)).toUpperCase();
+  const govt = role === "auditor" || role === "admin";
+  const alertsQ = useFraudAlerts();
+  const alerts: LiveAlert[] = govt ? ((alertsQ.data ?? []) as LiveAlert[]) : [];
   const badgeCount = alerts.length > 9 ? "9+" : String(alerts.length);
 
   const handleSignOut = () => {
-    signOut();
-    setBell(false);
-    setMobileNav(false);
-    nav("/", { replace: true });
+    void auth.signOut().finally(() => {
+      signOut();
+      setBell(false);
+      setMobileNav(false);
+      nav("/", { replace: true });
+    });
   };
 
   // Drawer hygiene: close on route change, Escape closes, lock scroll
+  const lastAppPath = useRef(location.pathname);
   useEffect(() => {
-    setMobileNav(false);
+    if (lastAppPath.current !== location.pathname) {
+      lastAppPath.current = location.pathname;
+      setMobileNav(false);
+    }
   }, [location.pathname, setMobileNav]);
   useEffect(() => {
     if (!mobileNavOpen) return;
@@ -486,11 +504,16 @@ export function AppShell() {
                       className="glass absolute right-0 z-50 mt-2 w-80 overflow-hidden rounded-2xl p-2 text-sm"
                       role="menu" aria-label="Notifications"
                     >
-                      <p className="eyebrow px-3 pb-1 pt-2">Signals · {alerts.length} unread</p>
-                      {alerts.map((a) => (
+                      <p className="eyebrow px-3 pb-1 pt-2">Signals · {alerts.length} open</p>
+                      {alerts.length === 0 && (
+                        <p className="px-3 py-2 text-[13px]" style={{ color: "var(--text-muted)" }}>
+                          {govt ? "No open signals on the live ledger." : "Signal detail is auditor-only."}
+                        </p>
+                      )}
+                      {alerts.slice(0, 6).map((a) => (
                         <Link key={a.id} to={`/auditor/alerts/${a.id}`} onClick={() => setBell(false)} className="block rounded-xl px-3 py-2.5 transition-colors hover:bg-[var(--bg-surface-alt)]">
-                          <span className="mono text-[11px] font-bold" style={{ color: "var(--primary-600)" }}>{a.id}</span>
-                          <span className="block text-[13px] font-semibold leading-snug" style={{ color: "var(--text-primary)" }}>{a.title.slice(0, 70)}…</span>
+                          <span className="mono text-[11px] font-bold" style={{ color: "var(--primary-600)" }}>{a.id.slice(0, 12)}…</span>
+                          <span className="block text-[13px] font-semibold leading-snug" style={{ color: "var(--text-primary)" }}>{(a.entityType ?? "Signal")} · {(a.status ?? "OPEN")}</span>
                         </Link>
                       ))}
                     </motion.div>

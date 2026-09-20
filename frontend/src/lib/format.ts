@@ -16,3 +16,11 @@ export function maskBank(acct: string): string {
   if (acct.length <= 4) return `•••• ${acct}`;
   return `•••• •••• ${acct.slice(-4)}`;
 }
+
+/** Compact INR: Cr / L / K units for KPIs and tickers. */
+export function shortINR(v: number): string {
+  if (v >= 10000000) return `₹${(v / 10000000).toFixed(2)} Cr`;
+  if (v >= 100000) return `₹${(v / 100000).toFixed(1)} L`;
+  if (v >= 1000) return `₹${(v / 1000).toFixed(1)}K`;
+  return formatINR(v);
+}

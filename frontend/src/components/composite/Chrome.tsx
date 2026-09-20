@@ -44,6 +44,26 @@ export function SyntheticRibbon() {
   );
 }
 
+/** Blocking setup screen when the backend is not configured. No mock fallback. */
+export function BackendRequired() {
+  return (
+    <div className="mx-auto w-full max-w-[720px] p-6" role="alert" aria-label="Backend not configured">
+      <div className="rs-card p-8 text-center md:p-10">
+        <p className="eyebrow justify-center">Backend not configured</p>
+        <h1 className="mt-3 text-[28px] font-extrabold tracking-tight">Connect the ledger to continue.</h1>
+        <p className="mx-auto mt-3 max-w-md text-sm leading-6" style={{ color: "var(--text-secondary)" }}>
+          This build serves live data only. Set <span className="mono font-bold">VITE_API_URL</span> to your
+          backend base URL (e.g. <span className="mono">http://localhost:3000/api/v1</span>) and restart,
+          then sign in to access the console.
+        </p>
+        <div className="mt-6 flex justify-center gap-2.5">
+          <a href="/login" className="rs-btn-primary rs-btn-sm">Go to login</a>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function PageHeader({ eyebrow, title, sub, action }: { eyebrow?: string; title: string; sub?: string; action?: React.ReactNode }) {
   return (
     <motion.div

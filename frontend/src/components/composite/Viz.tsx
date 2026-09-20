@@ -2,7 +2,7 @@ import { motion } from "motion/react";
 import { Check } from "lucide-react";
 import { Donut3D } from "@/components/viz/Depth";
 
-export const PIPELINE_STEPS = ["Uploaded", "Extracted", "Checked", "Scored", "Explained", "Routed"] as const;
+const PIPELINE_STEPS = ["Uploaded", "Extracted", "Checked", "Scored", "Explained", "Routed"] as const;
 
 export function PipelineStepper({ current }: { current: number }) {
   const safe = Math.max(0, Math.min(current, PIPELINE_STEPS.length - 1));
