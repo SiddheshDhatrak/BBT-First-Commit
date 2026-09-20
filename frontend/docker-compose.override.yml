@@ -1,0 +1,41 @@
+# Local full-stack wiring (dev only — new file, production compose untouched).
+# Backend postgres lives in backend/docker-compose.yml; run it first if needed:
+#   docker compose -f backend/docker-compose.yml up -d postgres
+# Then: docker compose -f docker-compose.override.yml up --build
+# Ports: backend :3000 (node), ml-service :8001, ai-agent :8002, frontend :5173 (vite).
+
+services:
+  ml-service:
+    build: ./ml-service
+    container_name: rahatsetu-ml
+    ports:
+      - "8001:8001"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8001/api/v1/health')\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  ai-agent:
+    build: ./ai-agent
+    container_name: rahatsetu-agent
+    ports:
+      - "8002:8002"
+    environment:
+      AI_PROVIDER: mock
+      ML_PROVIDER: mock
+      ML_SERVICE_URL: http://ml-service:8001
+      BACKEND_URL: http://host.docker.internal:3000
+      AGENT_PORT: 8002
+    depends_on:
+      ml-service:
+        condition: service_started
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8002/api/v1/health')\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s

@@ -66,8 +66,9 @@ function createReliefService(repo, audit) {
     const campaign = repo.find('campaigns', input.campaignId);
     repo.find('organizations', input.organizationId);
     if (!input.amount || input.amount <= 0) throw badRequest('amount must be positive.');
-    const allocations = repo.list('allocations', item => item.campaignId === campaign.id);
-    const allocated = Array.isArray(allocations) ? allocations.reduce((total, item) => total + item.amount, 0) : 0;
+    const allocated = repo
+      .list('allocations', item => item.campaignId === campaign.id)
+      .reduce((total, item) => total + item.amount, 0);
     if (allocated + input.amount > campaign.targetAmount)
       throw conflict('Allocation would exceed the campaign target amount.');
     const allocation = repo.insert('allocations', {

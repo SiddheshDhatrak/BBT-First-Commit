@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="rs-tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2E7CF6"/>
+      <stop offset="1" stop-color="#1A3FA0"/>
+    </linearGradient>
+  </defs>
+  <rect x="2" y="2" width="60" height="60" rx="16" fill="url(#rs-tile)"/>
+  <rect x="2.5" y="2.5" width="59" height="59" rx="15.5" fill="none" stroke="#ffffff" stroke-opacity="0.25"/>
+  <!-- bridge deck -->
+  <rect x="12" y="33" width="40" height="4" rx="2" fill="#ffffff"/>
+  <!-- arch -->
+  <path d="M16 33 C 22 20, 42 20, 48 33" fill="none" stroke="#ffffff" stroke-width="3.5" stroke-linecap="round"/>
+  <!-- piers -->
+  <rect x="15" y="37" width="4" height="11" rx="2" fill="#ffffff" opacity="0.92"/>
+  <rect x="45" y="37" width="4" height="11" rx="2" fill="#ffffff" opacity="0.92"/>
+  <rect x="30" y="37" width="4" height="8" rx="2" fill="#ffffff" opacity="0.65"/>
+  <!-- keystone rupee node -->
+  <circle cx="32" cy="22.5" r="5.5" fill="#ffffff"/>
+  <text x="32" y="26.4" text-anchor="middle" font-size="8" font-weight="800" fill="#1A3FA0" font-family="Manrope, Arial, sans-serif">₹</text>
+</svg>
