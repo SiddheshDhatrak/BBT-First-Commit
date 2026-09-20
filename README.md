@@ -7,27 +7,30 @@ React 19 + Vite 8 + TS · Tailwind v4 + shadcn-style tokens · Recharts (lazy) +
 
 ## Run
 ```bash
-npm install
-npm run dev      # http://localhost:5173
-npm run build    # dist/ (Amplify Hosting ready)
-npm run preview
+npm install                # install frontend + backend workspaces
+npm run dev:frontend       # UI on http://localhost:5173
+npm run dev:backend        # API on http://localhost:3000
+npm run build              # frontend dist/ (Amplify Hosting ready)
+npm run test:backend       # backend test suite
 ```
 
-## Demo path (<90s)
-`/` → `/dashboard` → `/donate` → `/donations/DON-5000-0917` → `/ngo/invoices/upload` → `/auditor/queue` → `/auditor/alerts/ALT-1042` → `/auditor/copilot`
+## Demo path (<90s, live ledger)
+`/` → `/register` (create Cognito account, confirm email) → `/login` → `/dashboard` → `/donate` (real POST) → `/donations` → trace lineage → `/auditor/queue` → resolve alert → `/auditor/copilot` (live agent).
 
-Login via `/login` and pick a role (mock Cognito): donor / ngo / vendor / auditor / admin → `/app` adapts.
+Login via `/login` with your Cognito email + password. Role comes from your Cognito group (DONOR / NGO / VENDOR / FIELD / GOVT); GOVT + `VITE_ADMIN_EMAILS` → admin → `/app` adapts.
 
 ## Notes
-- Mock-first APIs in `src/lib/mock.ts`; swap to real backend by replacing hooks (backoff 2s→5s→10s ready).
+- LIVE-ONLY UI: every page reads the backend (`src/lib/api.ts` + `src/lib/queries.ts`). No `src/lib/mock.ts` — deleted. Missing/error states are explicit, never synthetic.
 - Tokens in `src/index.css` (`:root[data-theme]`); theme persists `localStorage.rahatsetu_theme`, respects `prefers-reduced-motion`.
-- INR via `formatINR()` (en-IN); bank numbers masked to last-4.
-- `SYNTHETIC DEMO DATA` ribbon everywhere; fraud copy uses “flagged for review / risk signal” only.
+- INR via `formatINR()` (en-IN); bank numbers hashed (SHA-256) server-side pattern, masked to last-4 in UI.
+- `LIVE LEDGER DATA` ribbon everywhere; fraud copy uses “flagged for review / risk signal” only.
 
 ## Full-stack integration (this branch)
-- `backend/` = byte-identical import of `main` (Express 5, `:3000`, `/api/v1`). Run: `npm --prefix backend ci && npm --prefix backend start`.
-- Backend checks: `npm --prefix backend test`, `node backend/scripts/test-ghost-delivery.js`.
-- Frontend talks to it via `src/lib/api.ts` when `VITE_API_URL` is set (see `.env.example`); otherwise mock data.
-- `ml-service/` (`:8001` scoring) + `ai-agent/` (`:8002` orchestrator) = import of `ML` branch service dirs. Local: `docker compose -f docker-compose.override.yml up --build`, or `uvicorn` per README. Copilot uses `VITE_AGENT_URL` via `agent` client in `src/lib/api.ts` (mock fallback when unset).
-- Role model: frontend `vendor` → backend `NGO` (explicit demo decision; backend has no VENDOR role), `field` → `FIELD` 1:1. Production auth = Cognito Bearer JWT (`api.ts` sends `Authorization` when `accessToken` is set); local demo uses `x-role` headers (`FEATURE_DEMO_ROLE_HEADERS=true`). Never commit `.env`.
+- `backend/` = `main` code + 2 ported fixes (audit `.at(-1)` compat, allocation `repo.list` guard) + new live list endpoints (`GET /disasters`, `/campaigns` public; `/donations`, `/organizations`, `/programs`, `/vendors` role-guarded). Run: `npm --prefix backend ci && npm --prefix backend start`.
+- Managed Postgres for E2E: set `backend/.env` (`REPOSITORY_DRIVER=postgres`, managed `DATABASE_URL`, `DATABASE_SSL=true`, Cognito vars, both `FEATURE_*=false`, `CORS_ORIGIN=http://localhost:5173`), then `npm --prefix backend run migrate:up`.
+- Backend checks: `npm --prefix backend test` (35 passing), `node backend/scripts/test-ghost-delivery.js`.
+- Frontend requires `VITE_API_URL` + Cognito (`VITE_COGNITO_USER_POOL_ID/CLIENT_ID`) — see `.env.example`. Auth in `src/lib/cognito.ts` (real User Pool sign-up/confirm/sign-in; access token forwarded as `Authorization: Bearer`, verified by `backend/src/core/auth.js`).
+- `ml-service/` (`:8001` scoring) + `ai-agent/` (`:8002` orchestrator). Full 4-service run: `docker compose -f docker-compose.override.yml up --build` (backend :3000, ml :8001, agent :8002, frontend :5173), or run each natively. Copilot requires `VITE_AGENT_URL` — no canned fallback.
+- Role model: frontend `vendor` → backend `NGO`, `field` → `FIELD` 1:1, `auditor`/`admin` → `GOVT` (admin distinguished by `VITE_ADMIN_EMAILS`). Auth = Cognito Bearer JWT only in E2E (`FEATURE_DEMO_ROLE_HEADERS=false`). Never commit `.env`.
+- main merge status: `origin/main` restructured to `frontend/`+`backend/` monorepo since this branch diverged. Code is in sync (all backend/frontend logic ported, diffs empty); the directory move was deliberately NOT merged to avoid breaking this working tree. A future monorepo migration should move root `src/*`→`frontend/*` in a dedicated commit.
 - CI note: GitHub reads only root `.github/`; backend `ci.yml`/`deploy.yml` live under `backend/.github/` on this branch, so backend CI runs on `main`. The future `Frontend→main` PR must move workflows back to root and repoint paths (`backend/` prefix) — do not edit them here.
