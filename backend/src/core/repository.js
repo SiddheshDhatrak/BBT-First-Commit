@@ -24,6 +24,18 @@ const camelToSnake = obj => {
   );
 };
 
+// Maps repository collection keys to physical Postgres table names.
+// Migrations use snake_case plurals; most keys map mechanically, with
+// explicit overrides where they don't.
+const TABLE_OVERRIDES = {
+  idempotency: 'idempotency_keys',
+};
+
+function resolveTable(name) {
+  if (TABLE_OVERRIDES[name]) return TABLE_OVERRIDES[name];
+  return name.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase();
+}
+
 class MemoryRepository {
   constructor(seed = {}) {
     this.tables = Object.fromEntries(
@@ -98,35 +110,35 @@ class PostgresRepository {
   }
 
   async list(name, predicate = () => true) {
-    const rows = await this.query(`SELECT * FROM ${name}`);
+    const rows = await this.query(`SELECT * FROM ${resolveTable(name)}`);
     return rows.filter(predicate);
   }
 
   async find(name, id) {
-    const row = await this.queryOne(`SELECT * FROM ${name} WHERE id = $1`, [id]);
+    const row = await this.queryOne(`SELECT * FROM ${resolveTable(name)} WHERE id = $1`, [id]);
     if (!row) throw notFound(`${name} record ${id} was not found.`);
     return row;
   }
 
   async first(name, predicate) {
-    const rows = await this.query(`SELECT * FROM ${name}`);
+    const rows = await this.query(`SELECT * FROM ${resolveTable(name)}`);
     return rows.find(predicate);
   }
 
   async insert(name, values) {
     const snakeValues = camelToSnake(values);
-    const columns = Object.keys(snakeValues).filter(c => c !== 'id' && c !== 'createdAt');
+    const columns = Object.keys(snakeValues).filter(c => c !== 'id' && c !== 'created_at');
 
     const id = snakeValues.id || randomUUID();
-    const createdAt = snakeValues.createdAt || new Date().toISOString();
+    const createdAt = snakeValues.created_at || new Date().toISOString();
 
-    const insertColumns = ['id', 'createdAt', ...columns];
+    const insertColumns = ['id', 'created_at', ...columns];
     const insertValues = [id, createdAt, ...columns.map(c => snakeValues[c])];
     const insertPlaceholders = insertColumns.map((_, i) => `$${i + 1}`).join(', ');
     const insertColumnNames = insertColumns.join(', ');
 
     await this.query(
-      `INSERT INTO ${name} (${insertColumnNames}) VALUES (${insertPlaceholders})`,
+      `INSERT INTO ${resolveTable(name)} (${insertColumnNames}) VALUES (${insertPlaceholders})`,
       insertValues
     );
 
@@ -142,7 +154,7 @@ class PostgresRepository {
       .join(', ');
     const values = [id, ...Object.values(snakeChanges)];
 
-    await this.query(`UPDATE ${name} SET ${setClause} WHERE id = $1`, values);
+    await this.query(`UPDATE ${resolveTable(name)} SET ${setClause} WHERE id = $1`, values);
 
     return this.find(name, id);
   }
@@ -210,35 +222,35 @@ class TransactionRepository {
   }
 
   async list(name, predicate = () => true) {
-    const rows = await this.query(`SELECT * FROM ${name}`);
+    const rows = await this.query(`SELECT * FROM ${resolveTable(name)}`);
     return rows.filter(predicate);
   }
 
   async find(name, id) {
-    const row = await this.queryOne(`SELECT * FROM ${name} WHERE id = $1`, [id]);
+    const row = await this.queryOne(`SELECT * FROM ${resolveTable(name)} WHERE id = $1`, [id]);
     if (!row) throw notFound(`${name} record ${id} was not found.`);
     return row;
   }
 
   async first(name, predicate) {
-    const rows = await this.query(`SELECT * FROM ${name}`);
+    const rows = await this.query(`SELECT * FROM ${resolveTable(name)}`);
     return rows.find(predicate);
   }
 
   async insert(name, values) {
     const snakeValues = this.camelToSnake(values);
-    const columns = Object.keys(snakeValues).filter(c => c !== 'id' && c !== 'createdAt');
+    const columns = Object.keys(snakeValues).filter(c => c !== 'id' && c !== 'created_at');
 
     const id = snakeValues.id || randomUUID();
-    const createdAt = snakeValues.createdAt || new Date().toISOString();
+    const createdAt = snakeValues.created_at || new Date().toISOString();
 
-    const insertColumns = ['id', 'createdAt', ...columns];
+    const insertColumns = ['id', 'created_at', ...columns];
     const insertValues = [id, createdAt, ...columns.map(c => snakeValues[c])];
     const insertPlaceholders = insertColumns.map((_, i) => `$${i + 1}`).join(', ');
     const insertColumnNames = insertColumns.join(', ');
 
     await this.client.query(
-      `INSERT INTO ${name} (${insertColumnNames}) VALUES (${insertPlaceholders})`,
+      `INSERT INTO ${resolveTable(name)} (${insertColumnNames}) VALUES (${insertPlaceholders})`,
       insertValues
     );
 
@@ -254,7 +266,7 @@ class TransactionRepository {
       .join(', ');
     const values = [id, ...Object.values(snakeChanges)];
 
-    await this.client.query(`UPDATE ${name} SET ${setClause} WHERE id = $1`, values);
+    await this.client.query(`UPDATE ${resolveTable(name)} SET ${setClause} WHERE id = $1`, values);
 
     return this.find(name, id);
   }

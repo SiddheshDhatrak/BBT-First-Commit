@@ -78,6 +78,7 @@ const seed = {
   fieldAudits: [],
   auditLogs: [],
   idempotency: [],
+  invitations: [],
   referenceLocations: [
     {
       id: '3b3bbd33-ac5f-5ac2-87aa-256f15e67e93',
