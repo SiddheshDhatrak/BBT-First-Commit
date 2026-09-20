@@ -226,6 +226,12 @@ jobs:
     if: ${{ always() && needs.deploy-backend.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
       - name: Verify Backend
         run: |
           SERVICE_URL=$(aws apprunner describe-service --service-arn ${{ secrets.APP_RUNNER_SERVICE_ARN }} --region ${{ env.AWS_REGION }} --query 'Service.ServiceUrl' --output text)
