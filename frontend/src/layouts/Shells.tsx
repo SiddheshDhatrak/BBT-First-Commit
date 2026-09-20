@@ -16,9 +16,9 @@ import { alerts } from "@/lib/mock";
 const NAV_BY_ROLE: Record<Role, { to: string; label: string; hint: string; icon: typeof Home }[]> = {
   donor: [
     { to: "/app", label: "Donor Home", hint: "Overview", icon: Home },
-    { to: "/donate", label: "Donate", hint: "Give", icon: HandCoins },
-    { to: "/donations", label: "My Donations", hint: "Trace", icon: HeartHandshake },
-    { to: "/dashboard", label: "Public Dashboard", hint: "Transparency", icon: LayoutDashboard },
+    { to: "/app/donate", label: "Donate", hint: "Give", icon: HandCoins },
+    { to: "/app/donations", label: "My Donations", hint: "Trace", icon: HeartHandshake },
+    { to: "/app/dashboard", label: "Public Dashboard", hint: "Transparency", icon: LayoutDashboard },
   ],
   ngo: [
     { to: "/app", label: "Org Dashboard", hint: "Overview", icon: LayoutDashboard },
@@ -35,8 +35,8 @@ const NAV_BY_ROLE: Record<Role, { to: string; label: string; hint: string; icon:
   ],
   field: [
     { to: "/app", label: "Field Home", hint: "Deliveries", icon: Home },
-    { to: "/dashboard", label: "Public Dashboard", hint: "Transparency", icon: LayoutDashboard },
-    { to: "/methodology", label: "Methodology", hint: "Trust", icon: ShieldCheck },
+    { to: "/app/dashboard", label: "Public Dashboard", hint: "Transparency", icon: LayoutDashboard },
+    { to: "/app/methodology", label: "Methodology", hint: "Trust", icon: ShieldCheck },
   ],
   auditor: [
     { to: "/app", label: "Command Centre", hint: "Control room", icon: LayoutDashboard },

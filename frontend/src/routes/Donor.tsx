@@ -169,11 +169,11 @@ export function DonateFlow() {
                   <div className="mt-6 flex flex-col gap-2.5 sm:flex-row">
                     <button
                       type="button" className="rs-btn-accent flex-1 !min-h-[52px]"
-                      onClick={() => nav(`/donations/DON-${amount}-${ref.slice(-4)}`, { state: { amount, disaster: dName, ref } })}
+                      onClick={() => nav(`/app/donations/DON-${amount}-${ref.slice(-4)}`, { state: { amount, disaster: dName, ref } })}
                     >
                       Trace this donation
                     </button>
-                    <Link to="/donations" className="rs-btn-secondary flex-1 !min-h-[52px]">My donations</Link>
+                    <Link to="/app/donations" className="rs-btn-secondary flex-1 !min-h-[52px]">My donations</Link>
                   </div>
                   <button type="button" onClick={() => setStep(1)} className="rs-btn-ghost mt-1 text-[13px]">Edit amount</button>
                 </motion.div>
@@ -189,7 +189,7 @@ export function DonateFlow() {
 export function MyDonations() {
   return (
     <div>
-      <PageHeader eyebrow="Donor" title="My Donations" sub="Every gift, traceable to the field receipt." action={<Link to="/donate" className="rs-btn-accent rs-btn-sm">New donation</Link>} />
+      <PageHeader eyebrow="Donor" title="My Donations" sub="Every gift, traceable to the field receipt." action={<Link to="/app/donate" className="rs-btn-accent rs-btn-sm">New donation</Link>} />
       <Reveal>
         <div className="rs-card overflow-hidden">
           <div className="hidden items-center gap-4 border-b p-5 md:flex" style={{ borderColor: "var(--border-subtle)", background: "linear-gradient(120deg, var(--accent-soft), transparent)" }}>
@@ -200,7 +200,7 @@ export function MyDonations() {
               <p className="text-[18px] font-extrabold tracking-tight">1 gift · {formatINR(5000)} deployed</p>
               <p className="text-[13px]" style={{ color: "var(--text-secondary)" }}>Assam Floods 2026 · 78% utilised · receipts verified</p>
             </div>
-            <Link to="/donations/DON-5000-0917" className="rs-btn-primary rs-btn-sm ml-auto">Trace it →</Link>
+            <Link to="/app/donations/DON-5000-0917" className="rs-btn-primary rs-btn-sm ml-auto">Trace it →</Link>
           </div>
           <div className="overflow-x-auto">
             <table className="rs-table min-w-[600px]">
@@ -211,7 +211,7 @@ export function MyDonations() {
                   <td className="mono text-[13px]" style={{ color: "var(--text-secondary)" }}>2026-09-12</td>
                   <td className="font-bold">Assam Floods 2026</td>
                   <td className="kpi text-[16px] font-semibold">{formatINR(5000)}</td>
-                  <td className="text-right"><Link to="/donations/DON-5000-0917" className="font-extrabold">{strings.trace} →</Link></td>
+                  <td className="text-right"><Link to="/app/donations/DON-5000-0917" className="font-extrabold">{strings.trace} →</Link></td>
                 </tr>
               </tbody>
             </table>
@@ -263,7 +263,7 @@ export function LineageDetail() {
             <h2 className="mt-1 text-[20px] font-extrabold tracking-tight">Status timeline</h2>
             <div className="mt-4"><StatusTimeline items={lineageExample.timeline} /></div>
             <div className="luxe-divider my-4" aria-hidden />
-            <Link to="/donations" className="rs-btn-secondary rs-btn-sm w-full">Back to my gifts</Link>
+            <Link to="/app/donations" className="rs-btn-secondary rs-btn-sm w-full">Back to my gifts</Link>
           </div>
         </Reveal>
       </div>

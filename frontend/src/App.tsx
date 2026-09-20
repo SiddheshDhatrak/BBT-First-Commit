@@ -121,6 +121,14 @@ export default function App() {
 
           <Route element={<AppShell />}>
             <Route path="app" element={<RoleHome />} />
+            {/* Console copies of donor/field flows: same components, inside the
+                sidebar shell so signed-in navigation never drops to the public header.
+                Public /donate, /donations, /dashboard, /methodology stay for guests. */}
+            <Route path="app/donate" element={<RequireAuth><DonateFlow /></RequireAuth>} />
+            <Route path="app/donations" element={<RequireAuth><MyDonations /></RequireAuth>} />
+            <Route path="app/donations/:id" element={<RequireAuth><LineageDetail /></RequireAuth>} />
+            <Route path="app/dashboard" element={<PUB.PublicDashboard />} />
+            <Route path="app/methodology" element={<Methodology />} />
             <Route path="ngo/programs" element={<RequireRole allow={["ngo", "auditor", "admin"]}><NGO.Programs /></RequireRole>} />
             <Route path="ngo/invoices" element={<RequireRole allow={["ngo", "vendor", "auditor", "admin"]}><NGO.InvoiceList /></RequireRole>} />
             <Route path="ngo/invoices/upload" element={<RequireRole allow={["ngo", "vendor"]}><NGO.InvoiceUpload /></RequireRole>} />

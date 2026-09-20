@@ -69,7 +69,7 @@ export function DonorHome() {
   const liveOk = isApiEnabled() && !!live.data;
   return (
     <div>
-      <PageHeader eyebrow="Donor" title="Welcome back" sub="Your giving at a glance — recent activity and one-tap giving." action={<Link to="/donate" className="rs-btn-primary rs-btn-sm"><HandCoins size={15} aria-hidden /> Donate now</Link>} />
+      <PageHeader eyebrow="Donor" title="Welcome back" sub="Your giving at a glance — recent activity and one-tap giving." action={<Link to="/app/donate" className="rs-btn-primary rs-btn-sm"><HandCoins size={15} aria-hidden /> Donate now</Link>} />
       {liveOk && live.data && (
         <Reveal className="mb-4">
           <div className="rs-inset flex flex-wrap items-center gap-x-6 gap-y-1.5 px-5 py-3 text-[13px]">
@@ -90,8 +90,8 @@ export function DonorHome() {
               <div className="h-full rounded-full" style={{ width: "78%", background: "linear-gradient(90deg,#2E7CF6,#1A3FA0)" }} />
             </div>
             <div className="mt-5 flex flex-wrap gap-2.5">
-              <Link to="/donations/DON-5000-0917" className="rs-btn-primary rs-btn-sm">Trace it →</Link>
-              <Link to="/donations" className="rs-btn-secondary rs-btn-sm">All my gifts</Link>
+              <Link to="/app/donations/DON-5000-0917" className="rs-btn-primary rs-btn-sm">Trace it →</Link>
+              <Link to="/app/donations" className="rs-btn-secondary rs-btn-sm">All my gifts</Link>
             </div>
           </div>
         </Reveal>
@@ -101,7 +101,7 @@ export function DonorHome() {
               <p className="inline-flex items-center gap-1.5 text-[11px] font-extrabold uppercase tracking-[0.14em] opacity-70"><Sparkles size={13} aria-hidden /> Impact note</p>
               <p className="mt-2 text-[22px] font-extrabold leading-snug tracking-tight">Your ₹5,000 fed 40 families this week.</p>
             </div>
-            <Link to="/donate" className="rs-brand-cta inline-flex w-fit min-h-[44px] items-center rounded-xl px-5 text-[14px] font-extrabold">Give again</Link>
+            <Link to="/app/donate" className="rs-brand-cta inline-flex w-fit min-h-[44px] items-center rounded-xl px-5 text-[14px] font-extrabold">Give again</Link>
           </div>
         </Reveal>
       </div>
