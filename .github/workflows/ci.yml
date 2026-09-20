@@ -16,7 +16,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          sparse-checkout: ''
+          sparse-checkout-cone-mode: false
+          sparse-checkout: '/*'
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -35,7 +36,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          sparse-checkout: ''
+          sparse-checkout-cone-mode: false
+          sparse-checkout: '/*'
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -54,7 +56,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          sparse-checkout: ''
+          sparse-checkout-cone-mode: false
+          sparse-checkout: '/*'
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -87,7 +90,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          sparse-checkout: ''
+          sparse-checkout-cone-mode: false
+          sparse-checkout: '/*'
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -112,7 +116,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          sparse-checkout: ''
+          sparse-checkout-cone-mode: false
+          sparse-checkout: '/*'
       - name: Build Backend Docker image
         run: docker build -t rahatsetu-backend:${{ github.sha }} .
       - name: Verify Docker image exists
@@ -125,7 +130,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          sparse-checkout: ''
+          sparse-checkout-cone-mode: false
+          sparse-checkout: '/*'
       - name: Run npm audit (frontend)
         working-directory: ./frontend
         run: npm audit --audit-level=high || true
