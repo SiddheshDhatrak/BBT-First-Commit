@@ -82,7 +82,7 @@ function createApp({ repository, config } = {}) {
     res.set('access-control-allow-origin', corsOrigin);
     res.set(
       'access-control-allow-headers',
-      'content-type, x-role, x-actor-id, x-org-id, idempotency-key, x-request-id'
+      'content-type, authorization, x-role, x-actor-id, x-org-id, idempotency-key, x-request-id'
     );
     res.set('access-control-allow-methods', 'GET, POST, OPTIONS');
     if (req.method === 'OPTIONS') return res.sendStatus(204);

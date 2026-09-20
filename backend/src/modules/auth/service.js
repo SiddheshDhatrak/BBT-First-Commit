@@ -1,5 +1,5 @@
 const { CognitoIdentityProviderClient, AdminCreateUserCommand, AdminSetUserPasswordCommand, AdminAddUserToGroupCommand, AdminDeleteUserCommand, AdminConfirmSignUpCommand, AdminResendConfirmationCodeCommand, ForgotPasswordCommand, ConfirmForgotPasswordCommand, InitiateAuthCommand, GlobalSignOutCommand, SignUpCommand, ConfirmSignUpCommand, ResendConfirmationCodeCommand, AdminUpdateUserAttributesCommand, AdminGetUserCommand, ListUsersCommand } = require('@aws-sdk/client-cognito-identity-provider');
-const { badRequest, conflict, notFound, unauthorized } = require('../../core/errors');
+const { badRequest, conflict, forbidden, notFound, unauthorized } = require('../../core/errors');
 const { loadConfig } = require('../../core/config');
 
 const cognitoClient = new CognitoIdentityProviderClient({ region: process.env.AWS_REGION });
@@ -24,13 +24,30 @@ function createAuthService(config = loadConfig()) {
     throw new Error('Cognito configuration missing: COGNITO_USER_POOL_ID and COGNITO_CLIENT_ID required');
   }
 
+  // Public self-registration is limited to DONOR/NGO/VENDOR. FIELD and GOVT
+  // require a GOVT/SYSTEM actor (admin invite flow) or a valid invitation token.
+  const SELF_SERVE_ROLES = ['DONOR', 'NGO', 'VENDOR'];
+  const PRIVILEGED_ROLES = ['FIELD', 'GOVT'];
+
+  function resolveRegistrationRole(input, actor) {
+    const requested = String(input.role || 'DONOR').toUpperCase();
+    if (PRIVILEGED_ROLES.includes(requested)) {
+      const approver = actor && (actor.role === 'GOVT' || actor.role === 'SYSTEM');
+      if (!approver && !input.invitationToken) {
+        throw forbidden('FIELD and GOVT roles require an admin invitation.');
+      }
+    }
+    return SELF_SERVE_ROLES.includes(requested) ? requested : requested;
+  }
+
   async function registerUser(input, actor) {
+    const role = resolveRegistrationRole(input, actor);
     if (!isConfigured) {
       const mockUser = {
         id: `mock-${Date.now()}`,
         email: input.email,
         name: input.name,
-        role: input.role || 'DONOR',
+        role,
         organizationId: input.organizationId || null,
         emailVerified: true,
         status: 'CONFIRMED',
@@ -55,7 +72,7 @@ function createAuthService(config = loadConfig()) {
         { Name: 'email', Value: input.email },
         { Name: 'email_verified', Value: 'true' },
         { Name: 'name', Value: input.name },
-        { Name: 'custom:role', Value: input.role || 'DONOR' },
+        { Name: 'custom:role', Value: role },
       ],
     };
 
@@ -72,7 +89,7 @@ function createAuthService(config = loadConfig()) {
       Permanent: true,
     }));
 
-    const groupName = ROLE_GROUP_MAP[input.role || 'DONOR'];
+    const groupName = ROLE_GROUP_MAP[role];
     if (groupName) {
       await cognitoClient.send(new AdminAddUserToGroupCommand({
         UserPoolId: userPoolId,
