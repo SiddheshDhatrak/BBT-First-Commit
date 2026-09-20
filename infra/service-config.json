@@ -1,0 +1,51 @@
+{
+  "ServiceName": "rahatsetu-backend",
+  "SourceConfiguration": {
+    "ImageRepository": {
+      "ImageIdentifier": "013659367345.dkr.ecr.ap-south-1.amazonaws.com/rahatsetu-backend:latest",
+      "ImageConfiguration": {
+        "RuntimeEnvironmentVariables": {
+          "NODE_ENV": "production",
+          "REPOSITORY_DRIVER": "postgres",
+          "DATABASE_SSL": "true",
+          "FEATURE_MOCK_ADAPTERS": "false",
+          "FEATURE_DEMO_ROLE_HEADERS": "false",
+          "AWS_REGION": "ap-south-1",
+          "DATABASE_URL": "postgres://rahatsetu:rahatsetu@rahatsetu-db.c5gw4ewq03lr.ap-south-1.rds.amazonaws.com:5432/rahatsetu",
+          "COGNITO_USER_POOL_ID": "ap-south-1_DX00nsajC",
+          "COGNITO_CLIENT_ID": "fc2pacnijr6oaehus52oj7273",
+          "EVIDENCE_BUCKET": "rahatsetu-proofs"
+        },
+        "StartCommand": "node src/server.js",
+        "Port": "3000"
+      },
+      "ImageRepositoryType": "ECR"
+    },
+    "AutoDeploymentsEnabled": false,
+    "AuthenticationConfiguration": {
+      "AccessRoleArn": "arn:aws:iam::013659367345:role/AppRunnerECRAccessRole"
+    }
+  },
+  "InstanceConfiguration": {
+    "Cpu": "1024",
+    "Memory": "2048"
+  },
+  "HealthCheckConfiguration": {
+    "Protocol": "HTTP",
+    "Path": "/api/v1/health",
+    "Interval": 10,
+    "Timeout": 10,
+    "HealthyThreshold": 1,
+    "UnhealthyThreshold": 10
+  },
+  "NetworkConfiguration": {
+    "EgressConfiguration": {
+      "EgressType": "VPC",
+      "VpcConnectorArn": "arn:aws:apprunner:ap-south-1:013659367345:vpcconnector/rahatsetu-vpc-connector/1/15f5f0d4fcaf4fedaa491db53f0d62e6"
+    },
+    "IngressConfiguration": {
+      "IsPubliclyAccessible": true
+    },
+    "IpAddressType": "IPV4"
+  }
+}
