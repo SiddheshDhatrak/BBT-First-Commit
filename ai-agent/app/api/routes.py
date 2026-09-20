@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.config import Settings, get_settings
 from app.schemas.models import AnalyzeRequest, AnalyzeResponse, AuditQueryRequest
@@ -34,11 +34,11 @@ async def analyze(request: AnalyzeRequest, orchestrator: Orchestrator = Depends(
 
 @router.post("/verification/ai-query", response_model=AnalyzeResponse)
 async def verification_ai_query(
-    request: AuditQueryRequest, orchestrator: Orchestrator = Depends(get_orchestrator)
+    request: AuditQueryRequest, http_request: Request, orchestrator: Orchestrator = Depends(get_orchestrator)
 ):
     """Route aligned with RahatSetu Backend /api/v1/verification/ai-query."""
     try:
-        return await orchestrator.audit_query(request)
+        return await orchestrator.audit_query(request, http_request.headers.get("authorization"))
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except ValueError as exc:
@@ -47,11 +47,11 @@ async def verification_ai_query(
 
 @router.post("/ai/audit", response_model=AnalyzeResponse)
 async def ai_audit(
-    request: AuditQueryRequest, orchestrator: Orchestrator = Depends(get_orchestrator)
+    request: AuditQueryRequest, http_request: Request, orchestrator: Orchestrator = Depends(get_orchestrator)
 ):
     """Compatibility route matching RahatSetu Backend's /api/v1/ai/audit concept."""
     try:
-        return await orchestrator.audit_query(request)
+        return await orchestrator.audit_query(request, http_request.headers.get("authorization"))
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except ValueError as exc:

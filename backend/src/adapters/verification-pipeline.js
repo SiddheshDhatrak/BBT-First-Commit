@@ -1,14 +1,18 @@
 const { MockS3Adapter } = require('./mock-s3');
 const { MockTextractAdapter } = require('./mock-textract');
 const { MockBedrockAdapter } = require('./mock-bedrock');
+const { MLAdapter } = require('./ml');
 
 class VerificationPipeline {
-  constructor(repo, audit, adapters = {}) {
+  constructor(repo, audit, adapters = {}, options = {}) {
     this.repo = repo;
     this.audit = audit;
     this.s3 = adapters.s3 || new MockS3Adapter();
     this.textract = adapters.textract || new MockTextractAdapter();
     this.bedrock = adapters.bedrock || new MockBedrockAdapter();
+    this.ml = adapters.ml || new MLAdapter();
+    const rawAgent = options.agentUrl || process.env.AGENT_URL || '';
+    this.agentUrl = rawAgent.replace(/\/$/, '');
     this.eventHandlers = new Map();
   }
   on(event, handler) {
@@ -42,6 +46,21 @@ class VerificationPipeline {
     });
     const extracted = this.textract.extractInvoiceFields(textractResult.Blocks);
     const checks = this.validateInvoice(invoice, po, extracted);
+    // Live ML anomaly score (fail-open: null when ml-service is unreachable).
+    let mlResult = null;
+    try {
+      const vendor = invoice.vendorId ? this.repo.find('vendors', invoice.vendorId) : null;
+      mlResult = await this.ml.scoreInvoice(this.ml.buildInput({ invoice, purchaseOrder: po, vendor }));
+    } catch {
+      mlResult = null;
+    }
+    if (mlResult) {
+      checks.push({
+        rule: 'ML_ANOMALY_SCORE',
+        result: mlResult.isAnomaly ? 'FAIL' : 'PASS',
+        evidence: { score: mlResult.score, modelVersion: mlResult.modelVersion },
+      });
+    }
     const allPassed = checks.every(c => c.result === 'PASS');
     const status = allPassed ? 'VERIFIED' : 'FLAGGED';
     this.repo.update('invoices', invoiceId, {
@@ -50,6 +69,9 @@ class VerificationPipeline {
       verificationEvidence: checks,
       fileS3Key: key,
       invoiceHash: metadata.invoiceHash,
+      ...(mlResult
+        ? { mlAnomalyScore: mlResult.score, mlIsAnomaly: mlResult.isAnomaly, mlModelVersion: mlResult.modelVersion }
+        : {}),
     });
     await this.audit.append({
       entityType: 'invoice',
@@ -197,7 +219,7 @@ class VerificationPipeline {
     const campaign = this.repo.find('campaigns', program.campaignId);
     return this.repo.find('disasters', campaign.disasterId).deliveryPolicy;
   }
-  async queryAuditor(expenseId, question) {
+  async queryAuditor(expenseId, question, opts = {}) {
     const expense = this.repo.find('expenses', expenseId);
     const invoice = this.repo.find('invoices', expense.invoiceId);
     const distributions = this.repo.list('distributions', d => d.expenseId === expense.id);
@@ -211,14 +233,76 @@ class VerificationPipeline {
       'fraudAlerts',
       a => a.entityId === expense.id || proofs.some(p => p.id === a.entityId)
     );
-    const evidence = { expenseId, invoice, distributions, proofs, checks, alerts };
-    const result = await this.bedrock.invokeModel({
-      modelId: 'mock-bedrock',
-      body: JSON.stringify({ evidence, question }),
-      contentType: 'application/json',
-      accept: 'application/json',
+    let result;
+    if (this.agentUrl) {
+      // Delegate to the AI agent orchestrator (backend verification + ML +
+      // Bedrock), forwarding the caller's auth so the agent's own backend
+      // reads stay authorized. Falls back to the local path on any failure.
+      try {
+        result = await this.queryAgent(expenseId, question, opts.authHeader);
+      } catch {
+        result = null;
+      }
+    }
+    if (!result) {
+      const evidence = {
+        expenseId,
+        invoice,
+        distributions,
+        proofs,
+        checks,
+        alerts,
+        mlResult:
+          typeof invoice.mlAnomalyScore === 'number'
+            ? {
+                available: true,
+                status: 'available',
+                anomaly_score: invoice.mlAnomalyScore,
+                anomaly_signal: invoice.mlIsAnomaly ? 'anomalous' : 'normal',
+                model_version: invoice.mlModelVersion || 'isolation-forest-v1',
+              }
+            : { available: false, status: 'unavailable', anomaly_signal: 'unknown' },
+      };
+      const bedrockResult = await this.bedrock.invokeModel({
+        modelId: 'mock-bedrock',
+        body: JSON.stringify({ evidence, question }),
+        contentType: 'application/json',
+        accept: 'application/json',
+      });
+      result = JSON.parse(bedrockResult.body.toString());
+    }
+    await this.audit.append({
+      entityType: 'expense',
+      entityId: expenseId,
+      action: 'AI_QUERY',
+      actorId: (opts.actor && opts.actor.id) || 'system',
+      payload: { question: String(question || '').slice(0, 300), via: this.agentUrl && result.viaAgent ? 'agent' : 'local' },
     });
-    return JSON.parse(result.body.toString());
+    return result;
+  }
+
+  async queryAgent(expenseId, question, authHeader) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15000);
+    try {
+      const res = await fetch(`${this.agentUrl}/api/v1/verification/ai-query`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          ...(authHeader ? { authorization: authHeader } : {}),
+        },
+        body: JSON.stringify({ expense_id: expenseId, question }),
+        signal: controller.signal,
+      });
+      if (!res.ok) return null;
+      const data = await res.json().catch(() => null);
+      if (!data || !data.analysis) return null;
+      return { ...data, viaAgent: true };
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
   }
 }
 

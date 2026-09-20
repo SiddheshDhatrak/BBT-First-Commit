@@ -46,6 +46,12 @@ function createOversightService(repo, audit) {
       deliveryRiskScore: 0,
       relationshipRiskScore: 0,
     };
+    // Live ML component: stored at invoice verification time by the
+    // verification pipeline (0..1 scaled to 0..25 points). Absent when
+    // ml-service was unreachable — fail-open to zero.
+    if (typeof invoice.mlAnomalyScore === 'number') {
+      components.mlAnomalyScore = Math.round(Math.min(1, Math.max(0, invoice.mlAnomalyScore)) * 25);
+    }
     const highAlerts = alerts.filter(a => a.severity === 'HIGH');
     const mediumAlerts = alerts.filter(a => a.severity === 'MEDIUM');
     components.deterministicRuleScore = highAlerts.length * 25 + mediumAlerts.length * 10;
