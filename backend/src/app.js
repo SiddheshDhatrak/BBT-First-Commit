@@ -13,6 +13,7 @@ const { createReliefService } = require('./modules/relief/service');
 const { createDeliveryService } = require('./modules/delivery/service');
 const { createOversightService } = require('./modules/oversight/service');
 const { createDemoService } = require('./modules/demo/service');
+const { createAuthService } = require('./modules/auth/service');
 const { createAdapters, VerificationPipeline } = require('./adapters');
 const { loadConfig } = require('./core/config');
 const { requestLogger, errorLogger } = require('./core/logging');
@@ -63,6 +64,8 @@ function createApp({ repository, config } = {}) {
   const delivery = createDeliveryService(repo, audit);
   const oversight = createOversightService(repo, audit);
   const demo = createDemoService(repo, relief, delivery);
+  const auth = createAuthService(cfg);
+  const { createAuthRoutes } = require('./modules/auth/routes');
   const app = express();
 
   app.disable('x-powered-by');
@@ -446,6 +449,8 @@ function createApp({ repository, config } = {}) {
     );
   }
 
+  createAuthRoutes(router, auth);
+
   router.add(
     'POST',
     '/api/v1/verification/invoices/:id/process',
@@ -564,7 +569,7 @@ function createApp({ repository, config } = {}) {
     app,
     server,
     repo,
-    services: { audit, relief, delivery, oversight, demo, verificationPipeline, adapters },
+    services: { audit, relief, delivery, oversight, demo, verificationPipeline, adapters, auth },
     config: cfg,
   };
 }
