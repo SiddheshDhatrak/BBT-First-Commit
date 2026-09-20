@@ -6,6 +6,39 @@ import { OrgProfile, DonorHome } from "@/routes/Dashboard";
 import { DonateFlow, MyDonations, LineageDetail } from "@/routes/Donor";
 import { Login, Register, Pending } from "@/routes/Auth";
 import { useUI, type Role } from "@/lib/store";
+import { auth } from "@/lib/auth";
+
+function AuthBootstrap() {
+  const setUser = useUI((s) => s.setUser);
+  const setLoading = useUI((s) => s.setLoading);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const me = await auth.getCurrentUser();
+        if (!cancelled && me) {
+          setUser({
+            name: me.name,
+            email: me.email,
+            role: me.role,
+            organizationId: me.organizationId,
+            accessToken: me.accessToken,
+            refreshToken: me.refreshToken,
+            idToken: me.idToken,
+          });
+        }
+      } catch {
+        /* offline or expired session — stay signed out */
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [setUser, setLoading]);
+  return null;
+}
 
 const PUB = { PublicDashboard: lazy(() => import("@/routes/PublicDashboard")) };
 const NGO = {
@@ -101,6 +134,7 @@ function Fallback() {
 export default function App() {
   return (
     <BrowserRouter>
+      <AuthBootstrap />
       <ScrollToTop />
       <Suspense fallback={<Fallback />}>
         <Routes>

@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useState } from "react";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { motion } from "motion/react";
 import { Building2, HandCoins, Truck, ArrowRight, ShieldCheck, AlertCircle, Loader2 } from "lucide-react";
 import { useUI } from "@/lib/store";
@@ -9,15 +9,25 @@ import { Reveal } from "@/components/luxe/Reveal";
 import { auth, isAmplifyConfigured } from "@/lib/auth";
 
 export function Login() {
-  const { setRole, setUser, setTheme, setAuthenticated } = useUI();
+  const { setRole, setUser, setTheme } = useUI();
   const nav = useNavigate();
   const loc = useLocation() as { state?: { from?: string } };
+  const [params] = useSearchParams();
+  const justRegistered = params.get("registered") === "true";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [role, setR] = useState<"donor" | "ngo" | "vendor" | "field" | "auditor" | "admin">("donor");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const fromDonate = (loc.state?.from ?? "").startsWith("/donat");
+  const fromDonate = /^\/(app\/)?donat/.test(loc.state?.from ?? "");
+
+  const applyRoleTheme = (r: string) => {
+    if (r === "auditor" || r === "admin") {
+      try {
+        if (!localStorage.getItem("rahatsetu_theme")) setTheme("dark");
+      } catch { /* noop */ }
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -25,9 +35,11 @@ export function Login() {
     setLoading(true);
     try {
       const cleanEmail = email.trim();
-      const result = await auth.signIn(cleanEmail, password);
+      const result = await auth.signIn(cleanEmail, password, role);
+      const frontendRole = result.user.role.toLowerCase();
       setUser({ name: result.user.name, email: result.user.email, role: result.user.role, organizationId: result.user.organizationId || undefined, accessToken: result.accessToken, refreshToken: result.refreshToken, idToken: result.idToken });
-      setRole(result.user.role.toLowerCase() as any);
+      setRole(frontendRole as any);
+      applyRoleTheme(frontendRole);
       nav(loc.state?.from ?? "/app");
     } catch (err: any) {
       setError(err.message || "Login failed");
@@ -56,6 +68,7 @@ export function Login() {
           </Reveal>
           <Reveal delay={0.08}>
             <form className="rs-card space-y-4 p-6 md:p-8" onSubmit={handleSubmit}>
+              {justRegistered && <p role="status" className="rs-inset p-3.5 text-[13px] font-semibold" style={{ color: "var(--risk-low)" }}>Account created — sign in with your new credentials.</p>}
               {error && <p role="alert" className="rs-inset flex items-center gap-2.5 p-3.5 text-[13px] font-semibold text-red-400"><AlertCircle size={16} aria-hidden /> {error}</p>}
               {fromDonate && (
                 <p role="note" className="rs-inset flex items-center gap-2.5 p-3.5 text-[13px] font-semibold" style={{ color: "var(--text-secondary)" }}>
@@ -94,6 +107,7 @@ export function Login() {
       <div className="mx-auto grid max-w-md gap-4">
         <Reveal delay={0.08}>
           <form className="rs-card space-y-4 p-6 md:p-8" onSubmit={handleSubmit}>
+            {justRegistered && <p role="status" className="rs-inset p-3.5 text-[13px] font-semibold" style={{ color: "var(--risk-low)" }}>Account created — sign in with your new credentials.</p>}
             {error && <p role="alert" className="rs-inset flex items-center gap-2.5 p-3.5 text-[13px] font-semibold text-red-400"><AlertCircle size={16} aria-hidden /> {error}</p>}
             <label className="block text-sm font-bold" htmlFor="login-email">
               Email              <input id="login-email" required type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="rs-input mt-2" placeholder="you@example.org" autoComplete="email" />
@@ -145,7 +159,8 @@ export function Register() {
       const roleMap = { Donor: "DONOR", NGO: "NGO", Vendor: "VENDOR" };
       await auth.signUp(email.trim(), password, name.trim(), roleMap[kind]);
       setError("");
-      nav("/login?registered=true");
+      if (kind === "Donor") nav("/login?registered=true");
+      else nav("/pending");
     } catch (err: any) {
       setError(err.message || "Registration failed");
     } finally {
@@ -191,14 +206,36 @@ export function Register() {
 
   return (
     <div>
-      <PageHeader eyebrow="Join" title="Create your account" sub="Sign up for RahatSetu" />
-      <div className="mx-auto max-w-md">
-        <Reveal>
-          <div className="rs-card space-y-4 p-6 md:p-8">
-            <p className="text-center text-sm" style={{ color: "var(--text-muted)" }}>Have an account? <Link to="/login" className="font-extrabold">Sign in</Link></p>
-          </div>
-        </Reveal>
+      <PageHeader eyebrow="Join" title="Create your account" sub="Donor / NGO / Vendor self-registration. NGO & vendor go to pending approval." />
+      <div className="grid gap-4 md:grid-cols-3" role="radiogroup" aria-label="Account type">
+        {KINDS.map(({ k, icon: Icon, d }) => (
+          <motion.button
+            key={k} type="button" role="radio" aria-checked={kind === k} onClick={() => setKind(k)}
+            whileHover={{ y: -3 }}
+            whileTap={{ scale: 0.98 }}
+            className="rs-card p-6 text-left"
+            style={kind === k ? { borderColor: "var(--accent-500)", boxShadow: "var(--shadow-2)" } : undefined}
+          >
+            {kind === k && <div className="absolute inset-x-8 top-0 h-[2px]" style={{ background: "var(--primary-600)" }} aria-hidden />}
+            <span className="flex h-12 w-12 items-center justify-center rounded-2xl" style={kind === k ? { background: "var(--primary-600)", color: "#fff" } : { background: "var(--bg-surface-alt)", color: "var(--text-secondary)" }}>
+              <Icon size={21} aria-hidden />
+            </span>
+            <span className="mt-3 block text-[20px] font-extrabold tracking-tight">{k}</span>
+            <span className="mt-1 block text-sm" style={{ color: "var(--text-secondary)" }}>{d}</span>
+          </motion.button>
+        ))}
       </div>
+      <Reveal className="mt-4">
+        <form className="rs-card mx-auto max-w-lg space-y-4 p-6 md:p-8" onSubmit={handleSubmit}>
+          {error && <p role="alert" className="rs-inset flex items-center gap-2.5 p-3.5 text-[13px] font-semibold text-red-400"><AlertCircle size={16} aria-hidden /> {error}</p>}
+          <label className="block text-sm font-bold">Organisation / full name<input required value={name} onChange={(e) => setName(e.target.value)} className="rs-input mt-2" autoComplete="organization" placeholder="Seva Sahyog Foundation" /></label>
+          <label className="block text-sm font-bold">Email<input required value={email} onChange={(e) => setEmail(e.target.value)} type="email" className="rs-input mt-2" autoComplete="email" placeholder="you@example.org" /></label>
+          <label className="block text-sm font-bold">Password<input required value={password} onChange={(e) => setPassword(e.target.value)} type="password" className="rs-input mt-2" autoComplete="new-password" placeholder="Min 8 characters" /></label>
+          <label className="block text-sm font-bold">Confirm Password<input required value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} type="password" className="rs-input mt-2" autoComplete="new-password" placeholder="Confirm password" /></label>
+          <button type="submit" className="rs-btn-accent w-full !min-h-[52px]" disabled={loading}>{loading ? <Loader2 size={16} className="animate-spin" /> : <>Create {kind} account <ArrowRight size={16} aria-hidden /></>}</button>
+          <p className="text-center text-sm" style={{ color: "var(--text-secondary)" }}>Have an account? <Link to="/login" className="font-extrabold">Sign in</Link></p>
+        </form>
+      </Reveal>
     </div>
   );
 }
