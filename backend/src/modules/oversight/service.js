@@ -1,20 +1,23 @@
 const { badRequest } = require('../../core/errors');
 
+// NOTE: every repo access is awaited so this service works with both the
+// synchronous MemoryRepository (dev/test) and the asynchronous
+// PostgresRepository (production). `await` on a non-Promise is a no-op.
 function createOversightService(repo, audit) {
-  function getExpenseVerification(expenseId) {
-    const expense = repo.find('expenses', expenseId);
-    const invoice = repo.find('invoices', expense.invoiceId);
-    const distributions = repo.list('distributions', item => item.expenseId === expense.id);
-    const proofs = repo.list('proofs', item =>
+  async function getExpenseVerification(expenseId) {
+    const expense = await repo.find('expenses', expenseId);
+    const invoice = await repo.find('invoices', expense.invoiceId);
+    const distributions = await repo.list('distributions', item => item.expenseId === expense.id);
+    const proofs = await repo.list('proofs', item =>
       distributions.some(distribution => distribution.id === item.distributionId)
     );
     const proofIds = new Set(proofs.map(proof => proof.id));
-    const checks = repo.list('deliveryVerificationChecks', check => proofIds.has(check.podId));
-    const alerts = repo.list(
+    const checks = await repo.list('deliveryVerificationChecks', check => proofIds.has(check.podId));
+    const alerts = await repo.list(
       'fraudAlerts',
       alert => alert.entityId === expense.id || proofIds.has(alert.entityId)
     );
-    const riskScore = calculateRiskScore(expense, invoice, distributions, proofs, checks, alerts);
+    const riskScore = await calculateRiskScore(expense, invoice, distributions, proofs, checks, alerts);
     return {
       expenseId: expense.id,
       financial: {
@@ -37,7 +40,7 @@ function createOversightService(repo, audit) {
       deliveryConfidence: calculateDeliveryConfidence(proofs, checks, alerts),
     };
   }
-  function calculateRiskScore(expense, invoice, distributions, proofs, checks, alerts) {
+  async function calculateRiskScore(expense, invoice, distributions, proofs, checks, alerts) {
     let score = 0;
     const components = {
       deterministicRuleScore: 0,
@@ -57,20 +60,25 @@ function createOversightService(repo, audit) {
     components.deterministicRuleScore = highAlerts.length * 25 + mediumAlerts.length * 10;
     const failedChecks = checks.filter(c => c.result === 'FAIL');
     components.deliveryRiskScore = failedChecks.length * 15;
-    const program = repo.find('programs', expense.programId);
-    const campaign = repo.find('campaigns', program.campaignId);
-    const allExpenses = repo.list('expenses', e => {
-      const p = repo.find('programs', e.programId);
-      return p.campaignId === campaign.id;
-    });
+    const program = await repo.find('programs', expense.programId);
+    const campaign = await repo.find('campaigns', program.campaignId);
+    // Predicate callbacks must stay synchronous, so resolve related rows
+    // with explicit awaits instead of repo calls inside filters.
+    const allExpenseRows = await repo.list('expenses');
+    const allExpenses = [];
+    for (const e of allExpenseRows) {
+      const p = await repo.find('programs', e.programId);
+      if (p.campaignId === campaign.id) allExpenses.push(e);
+    }
     const avgAmount =
       allExpenses.reduce((s, e) => s + e.amount, 0) / Math.max(allExpenses.length, 1);
     if (expense.amount > avgAmount * 3) components.statisticalAnomalyScore += 20;
-    const vendor = repo.find('vendors', invoice.vendorId);
-    const vendorExpenses = allExpenses.filter(e => {
-      const inv = repo.find('invoices', e.invoiceId);
-      return inv.vendorId === vendor.id;
-    });
+    const vendor = await repo.find('vendors', invoice.vendorId);
+    const vendorExpenses = [];
+    for (const e of allExpenses) {
+      const inv = await repo.find('invoices', e.invoiceId);
+      if (inv.vendorId === vendor.id) vendorExpenses.push(e);
+    }
     if (vendorExpenses.length > 5) components.relationshipRiskScore += 10;
     const totalProofs = proofs.length;
     const verifiedProofs = proofs.filter(p => p.verificationStatus === 'VERIFIED').length;
@@ -114,17 +122,17 @@ function createOversightService(repo, audit) {
       failedChecks,
     };
   }
-  function resolveAlert(alertId, input, actor) {
-    const alert = repo.find('fraudAlerts', alertId);
+  async function resolveAlert(alertId, input, actor) {
+    const alert = await repo.find('fraudAlerts', alertId);
     if (!['RESOLVED', 'DISMISSED', 'ESCALATED'].includes(input.status))
       throw badRequest('status must be RESOLVED, DISMISSED, or ESCALATED.');
-    const updated = repo.update('fraudAlerts', alert.id, {
+    const updated = await repo.update('fraudAlerts', alert.id, {
       status: input.status,
       resolutionReason: input.reason || '',
       resolvedBy: actor.id,
       resolvedAt: new Date().toISOString(),
     });
-    audit.append({
+    await audit.append({
       entityType: 'fraudAlert',
       entityId: alert.id,
       action: `ALERT_${input.status}`,
@@ -133,51 +141,75 @@ function createOversightService(repo, audit) {
     });
     return updated;
   }
-  function publicDashboard() {
-    const donations = repo.list('donations');
-    const expenses = repo.list('expenses');
+  function emptyDashboard() {
     return {
       syntheticData: true,
       privacyNotice:
         'This endpoint excludes beneficiary identifiers, evidence locations, and investigation details.',
-      totalDonated: donations.reduce((sum, donation) => sum + donation.amount, 0),
-      donationCount: donations.length,
-      expenseCount: expenses.length,
-      financialVerifiedExpenses: expenses.filter(item =>
-        [
-          'FINANCIAL_VERIFIED',
-          'DELIVERY_PENDING',
-          'DELIVERY_VERIFIED',
-          'DELIVERY_FLAGGED',
-        ].includes(item.status)
-      ).length,
-      deliveryVerifiedExpenses: expenses.filter(item => item.status === 'DELIVERY_VERIFIED').length,
-      deliveryPendingExpenses: expenses.filter(item => item.status === 'DELIVERY_PENDING').length,
-      deliveryFlaggedExpenses: expenses.filter(item => item.status === 'DELIVERY_FLAGGED').length,
-      utilizationByCampaign: repo.list('campaigns').map(campaign => ({
-        campaignId: campaign.id,
-        name: campaign.name,
-        donated: donations
-          .filter(donation => donation.campaignId === campaign.id)
-          .reduce((sum, donation) => sum + donation.amount, 0),
-      })),
+      totalDonated: 0,
+      donationCount: 0,
+      expenseCount: 0,
+      financialVerifiedExpenses: 0,
+      deliveryVerifiedExpenses: 0,
+      deliveryPendingExpenses: 0,
+      deliveryFlaggedExpenses: 0,
+      utilizationByCampaign: [],
     };
   }
-  function governmentDashboard() {
-    const expenses = repo.list('expenses');
-    const expenseVerifications = expenses.map(expense => getExpenseVerification(expense.id));
+  async function publicDashboard() {
+    // Fail open: this is a public, privacy-safe aggregate. A database outage
+    // must not turn it into a 500 — return zeroed metrics instead.
+    try {
+      const donations = await repo.list('donations');
+      const expenses = await repo.list('expenses');
+      const campaigns = await repo.list('campaigns');
+      return {
+        ...emptyDashboard(),
+        totalDonated: donations.reduce((sum, donation) => sum + donation.amount, 0),
+        donationCount: donations.length,
+        expenseCount: expenses.length,
+        financialVerifiedExpenses: expenses.filter(item =>
+          [
+            'FINANCIAL_VERIFIED',
+            'DELIVERY_PENDING',
+            'DELIVERY_VERIFIED',
+            'DELIVERY_FLAGGED',
+          ].includes(item.status)
+        ).length,
+        deliveryVerifiedExpenses: expenses.filter(item => item.status === 'DELIVERY_VERIFIED').length,
+        deliveryPendingExpenses: expenses.filter(item => item.status === 'DELIVERY_PENDING').length,
+        deliveryFlaggedExpenses: expenses.filter(item => item.status === 'DELIVERY_FLAGGED').length,
+        utilizationByCampaign: campaigns.map(campaign => ({
+          campaignId: campaign.id,
+          name: campaign.name,
+          donated: donations
+            .filter(donation => donation.campaignId === campaign.id)
+            .reduce((sum, donation) => sum + donation.amount, 0),
+        })),
+      };
+    } catch (error) {
+      console.error(`[oversight] publicDashboard failed, returning empty metrics: ${error.message}`);
+      return { ...emptyDashboard(), degraded: true };
+    }
+  }
+  async function governmentDashboard() {
+    const expenses = await repo.list('expenses');
+    const expenseVerifications = [];
+    for (const expense of expenses) {
+      expenseVerifications.push(await getExpenseVerification(expense.id));
+    }
     return {
       syntheticData: true,
-      publicMetrics: publicDashboard(),
-      openAlerts: repo.list('fraudAlerts', alert =>
+      publicMetrics: await publicDashboard(),
+      openAlerts: await repo.list('fraudAlerts', alert =>
         ['OPEN', 'INVESTIGATING'].includes(alert.status)
       ),
       expenses: expenseVerifications,
-      auditChain: audit.verify(),
+      auditChain: await audit.verify(),
     };
   }
-  function auditCopilot(input) {
-    const expense = getExpenseVerification(input.expenseId);
+  async function auditCopilot(input) {
+    const expense = await getExpenseVerification(input.expenseId);
     const reasons = [];
     if (expense.delivery.status === 'DELIVERY_PENDING')
       reasons.push('The paid expense has not yet received verified delivery proof.');

@@ -8,7 +8,10 @@ const { MLAdapter } = require('./ml');
 const { VerificationPipeline } = require('./verification-pipeline');
 
 function createAdapters(config = {}) {
-  const useMock = config.FEATURE_MOCK_ADAPTERS !== false;
+  // Default to mock adapters unless explicitly disabled. Accepts booleans
+  // (post-loadConfig) as well as raw "true"/"false" strings.
+  const raw = config.FEATURE_MOCK_ADAPTERS;
+  const useMock = raw === undefined ? true : raw === true || String(raw).toLowerCase() === 'true';
 
   if (useMock) {
     return {

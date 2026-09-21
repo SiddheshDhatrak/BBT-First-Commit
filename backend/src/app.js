@@ -381,10 +381,10 @@ function createApp({ repository, config } = {}) {
   router.add(
     'GET',
     '/api/v1/expenses/:id/verification',
-    withRole([roles.NGO, roles.VENDOR, roles.GOVT], ({ params, actor }) => {
-      const expense = repo.find('expenses', params.id);
+    withRole([roles.NGO, roles.VENDOR, roles.GOVT], async ({ params, actor }) => {
+      const expense = await repo.find('expenses', params.id);
       requireOrganization(actor, expense.organizationId);
-      return { body: oversight.getExpenseVerification(params.id) };
+      return { body: await oversight.getExpenseVerification(params.id) };
     })
   );
   router.add(
@@ -453,7 +453,7 @@ function createApp({ repository, config } = {}) {
     withRole(
       [roles.GOVT],
       validate(fraudAlertResolveSchema, 'body'),
-      ({ params, body, actor }) => ({ body: oversight.resolveAlert(params.id, body, actor) })
+      async ({ params, body, actor }) => ({ body: await oversight.resolveAlert(params.id, body, actor) })
     )
   );
   router.add(
@@ -474,17 +474,17 @@ function createApp({ repository, config } = {}) {
   router.add(
     'POST',
     '/api/v1/ai/audit',
-    withRole([roles.GOVT], validate(aiAuditSchema, 'body'), ({ body }) => ({
-      body: oversight.auditCopilot(body),
+    withRole([roles.GOVT], validate(aiAuditSchema, 'body'), async ({ body }) => ({
+      body: await oversight.auditCopilot(body),
     }))
   );
   router.add('GET', '/api/v1/dashboard/public', async () => ({
-    body: oversight.publicDashboard(),
+    body: await oversight.publicDashboard(),
   }));
   router.add(
     'GET',
     '/api/v1/dashboard/government',
-    withRole([roles.GOVT], () => ({ body: oversight.governmentDashboard() }))
+    withRole([roles.GOVT], async () => ({ body: await oversight.governmentDashboard() }))
   );
   router.add(
     'GET',

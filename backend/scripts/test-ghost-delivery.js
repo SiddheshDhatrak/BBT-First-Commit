@@ -195,7 +195,7 @@ async function runGhostDeliveryTest() {
     console.log();
 
     console.log('16. Government dashboard...');
-    const govDashboard = oversight.governmentDashboard();
+    const govDashboard = await oversight.governmentDashboard();
     console.log(`   Open alerts: ${govDashboard.openAlerts.length}`);
     console.log(
       `   Expenses with delivery flagged: ${govDashboard.expenses.filter(e => e.delivery.status === 'DELIVERY_FLAGGED').length}`
@@ -203,7 +203,7 @@ async function runGhostDeliveryTest() {
     console.log(`   Audit chain valid: ${govDashboard.auditChain.valid}\n`);
 
     console.log('17. AI Auditor query...');
-    const aiResponse = oversight.auditCopilot({ expenseId: expense.id });
+    const aiResponse = await oversight.auditCopilot({ expenseId: expense.id });
     console.log(`   AI Response: ${aiResponse.answer}`);
     console.log(
       `   Risk Score: ${aiResponse.riskScore.total} (${JSON.stringify(aiResponse.riskScore.components)})`
@@ -229,7 +229,7 @@ async function runGhostDeliveryTest() {
     console.log('20. Resolving alerts...');
     const openAlerts = repo.list('fraudAlerts', a => ['OPEN', 'INVESTIGATING'].includes(a.status));
     for (const alert of openAlerts) {
-      oversight.resolveAlert(
+      await oversight.resolveAlert(
         alert.id,
         { status: 'RESOLVED', reason: 'Verified as ghost delivery through field audit.' },
         govtActor

@@ -21,9 +21,18 @@ function createAuthService(config = loadConfig(), repo = null) {
   const userPoolId = config.COGNITO_USER_POOL_ID;
   const clientId = config.COGNITO_CLIENT_ID;
 
-  const isConfigured = !!(userPoolId && clientId);
-  
-  if (!isConfigured && config.NODE_ENV === 'production') {
+  // Mock mode is forced by the mock/demo feature flags, not just by missing
+  // Cognito credentials. FEATURE_MOCK_ADAPTERS=true must bypass real Cognito
+  // even when stale COGNITO_* env vars are still present (e.g. App Runner),
+  // otherwise registration attempts real Cognito calls and returns 500.
+  const flagTrue = value =>
+    value === true || value === 1 || String(value ?? '').toLowerCase() === 'true' || String(value) === '1';
+  const mockAuthAllowed =
+    flagTrue(config.FEATURE_MOCK_ADAPTERS) || flagTrue(config.FEATURE_DEMO_ROLE_HEADERS);
+  const mockMode = mockAuthAllowed || !userPoolId || !clientId;
+  const isConfigured = !mockMode;
+
+  if (!isConfigured && config.NODE_ENV === 'production' && !mockAuthAllowed) {
     throw new Error('Cognito configuration missing: COGNITO_USER_POOL_ID and COGNITO_CLIENT_ID required');
   }
 
@@ -207,6 +216,29 @@ function createAuthService(config = loadConfig(), repo = null) {
     return requested;
   }
 
+  function buildMockRegistration(input, role, pending, effectiveRole) {
+    const mockUser = {
+      id: `mock-${Date.now()}`,
+      email: input.email,
+      name: input.name,
+      role: effectiveRole,
+      requestedRole: pending ? role : undefined,
+      organizationId: input.organizationId || null,
+      emailVerified: true,
+      status: 'CONFIRMED',
+      createdAt: new Date().toISOString(),
+      lastModified: new Date().toISOString(),
+    };
+    MOCK_USERS.set(input.email, { ...mockUser, password: input.password });
+    return {
+      user: mockUser,
+      status: pending ? 'PENDING' : 'ACTIVE',
+      message: pending
+        ? 'Registration received. A government reviewer must approve it before console access.'
+        : 'Mock registration (Cognito not configured)',
+    };
+  }
+
   async function registerUser(input, actor) {
     const role = resolveRegistrationRole(input, actor);
     if (PRIVILEGED_ROLES.includes(role)) {
@@ -216,28 +248,24 @@ function createAuthService(config = loadConfig(), repo = null) {
     const pending = !INSTANT_ROLES.includes(role) && !PRIVILEGED_ROLES.includes(role);
     const effectiveRole = pending ? 'PENDING' : role;
     if (!isConfigured) {
-      const mockUser = {
-        id: `mock-${Date.now()}`,
-        email: input.email,
-        name: input.name,
-        role: effectiveRole,
-        requestedRole: pending ? role : undefined,
-        organizationId: input.organizationId || null,
-        emailVerified: true,
-        status: 'CONFIRMED',
-        createdAt: new Date().toISOString(),
-        lastModified: new Date().toISOString(),
-      };
-      MOCK_USERS.set(input.email, { ...mockUser, password: input.password });
-      return {
-        user: mockUser,
-        status: pending ? 'PENDING' : 'ACTIVE',
-        message: pending
-          ? 'Registration received. A government reviewer must approve it before console access.'
-          : 'Mock registration (Cognito not configured)',
-      };
+      return buildMockRegistration(input, role, pending, effectiveRole);
     }
 
+    try {
+      return await registerUserWithCognito(input, role, pending);
+    } catch (error) {
+      // Fail open to mock registration when mock adapters are enabled but
+      // real Cognito is unreachable/misconfigured (stale pool id, bad
+      // credentials, network). Registration must not return 500 in mock mode.
+      if (mockAuthAllowed) {
+        console.error(`[auth] Cognito registration failed, falling back to mock mode: ${error.message}`);
+        return buildMockRegistration(input, role, pending, effectiveRole);
+      }
+      throw error;
+    }
+  }
+
+  async function registerUserWithCognito(input, role, pending) {
     const existingUser = await getUserByEmail(input.email);
     if (existingUser) {
       throw conflict('User with this email already exists');

@@ -221,7 +221,7 @@ async function runUnitTests() {
     },
     ngoActor
   );
-  const verification = oversight.getExpenseVerification(expense.id);
+  const verification = await oversight.getExpenseVerification(expense.id);
   // POD-006 check runs on proof evaluation; verify alert exists in system
   const allAlerts = repo.list('fraudAlerts');
   assert(
@@ -278,7 +278,7 @@ async function runUnitTests() {
   console.log('\n9. Alert Resolution Tests');
   const alerts = repo.list('fraudAlerts', a => a.status === 'OPEN');
   if (alerts.length > 0) {
-    const resolved = oversight.resolveAlert(
+    const resolved = await oversight.resolveAlert(
       alerts[0].id,
       { status: 'RESOLVED', reason: 'Test' },
       govtActor
@@ -288,7 +288,7 @@ async function runUnitTests() {
   }
 
   console.log('\n10. Public Dashboard Privacy Test');
-  const publicDash = oversight.publicDashboard();
+  const publicDash = await oversight.publicDashboard();
   assert(publicDash.privacyNotice, 'Public dashboard: Has privacy notice');
   assert(publicDash.syntheticData === true, 'Public dashboard: Marked synthetic');
   assert(!JSON.stringify(publicDash).includes('householdHash'), 'Public dashboard: No PII');
